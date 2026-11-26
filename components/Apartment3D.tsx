@@ -174,6 +174,7 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
     // ---------- Shell ----------
     box(-0.2, -0.2, 10.4, 10.4, 0.35, "#9EA3AB", -0.35);
     const floors: THREE.Mesh[] = [];
+    const labels: THREE.Sprite[] = [];
     for (const r of ROOMS) {
       const f = new THREE.Mesh(new THREE.PlaneGeometry(r.x[1] - r.x[0], r.z[1] - r.z[0]), mat(r.floor));
       f.rotation.x = -Math.PI / 2;
@@ -182,11 +183,13 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       f.userData.pick = r.pick;
       scene.add(f);
       floors.push(f);
-      const label = textSprite(r.label, { size: 40, color: "#7A6F5C" });
-      label.position.set(r.x[1] - 0.55, 0.06, r.z[1] - 0.35);
-      label.center.set(0.5, 0);
-      (label.material as THREE.SpriteMaterial).opacity = 0.85;
-      label.scale.multiplyScalar(0.8);
+      const label = textSprite(r.label, { size: 44, color: "#FFFFFF", bg: "rgba(17,18,20,0.82)", pad: 16, radius: 30 });
+      const sm = label.material as THREE.SpriteMaterial;
+      sm.depthTest = false;
+      label.renderOrder = 20;
+      label.position.set((r.x[0] + r.x[1]) / 2, 2.05, (r.z[0] + r.z[1]) / 2);
+      label.userData.base = label.scale.clone();
+      labels.push(label);
       scene.add(label);
     }
     // bathroom tiles + kitchen checker
@@ -349,20 +352,22 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
     const pants = [mat("#3B4252"), mat("#2F4F86"), mat("#5C4B3B"), mat("#4A5A3C")];
     const shoes = mat("#1E2433");
     const ringMat = new THREE.MeshBasicMaterial({ color: "#FF6A2C", transparent: true, opacity: 0.9, depthWrite: false });
-    const capsule = (r: number, len: number, m: THREE.Material) => {
-      const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 4, 10), m);
+    // Blocky, voxel-style figures.
+    const cube = (w: number, h: number, d: number, m: THREE.Material) => {
+      const mesh = new THREE.Mesh(boxGeo, m);
+      mesh.scale.set(w, h, d);
       mesh.castShadow = true;
       return mesh;
     };
-    const limb = (r: number, len: number, m: THREE.Material, foot?: THREE.Material) => {
+    /** A limb that pivots at its top (shoulder / hip). */
+    const limb = (w: number, len: number, m: THREE.Material, end?: THREE.Material, endH = 0.06) => {
       const g = new THREE.Group();
-      const c = capsule(r, len, m);
-      c.position.y = -(len / 2 + r * 0.6);
+      const c = cube(w, len, w, m);
+      c.position.y = -len / 2;
       g.add(c);
-      if (foot) {
-        const f = new THREE.Mesh(new THREE.BoxGeometry(r * 2.2, r * 1.2, r * 3.4), foot);
-        f.position.set(0, -(len + r * 1.4), r * 0.7);
-        f.castShadow = true;
+      if (end) {
+        const f = cube(w * 1.05, endH, end === shoes ? w * 1.6 : w * 1.05, end);
+        f.position.set(0, -len - endH / 2 + 0.005, end === shoes ? w * 0.3 : 0);
         g.add(f);
       }
       return g;
@@ -377,33 +382,39 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       const hips = new THREE.Group();
       hips.position.y = 0.5;
       const torsoMat = mat(p.color).clone();
-      const torso = capsule(0.15, 0.34, torsoMat);
-      torso.position.y = 0.3;
-      const legL = limb(0.065, 0.34, pants[i % pants.length], shoes);
-      const legR = limb(0.065, 0.34, pants[i % pants.length], shoes);
-      legL.position.set(-0.08, 0.02, 0);
-      legR.position.set(0.08, 0.02, 0);
-      const armL = limb(0.05, 0.3, torsoMat);
-      const armR = limb(0.05, 0.3, torsoMat);
-      armL.position.set(-0.2, 0.52, 0);
-      armR.position.set(0.2, 0.52, 0);
-      const handR = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 10), skin);
-      handR.position.y = -0.4;
-      armR.add(handR);
-      const handL = handR.clone();
-      armL.add(handL);
-      const ph = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.08), mat("#1E2433"));
-      ph.position.set(0.02, -0.42, 0.03);
+      const torso = cube(0.34, 0.42, 0.2, torsoMat);
+      torso.position.y = 0.21;
+      const belt = cube(0.345, 0.06, 0.205, pants[i % pants.length]);
+      belt.position.y = 0.015;
+      const legL = limb(0.15, 0.44, pants[i % pants.length], shoes);
+      const legR = limb(0.15, 0.44, pants[i % pants.length], shoes);
+      legL.position.set(-0.085, 0, 0);
+      legR.position.set(0.085, 0, 0);
+      const armL = limb(0.1, 0.36, torsoMat, skin, 0.08);
+      const armR = limb(0.1, 0.36, torsoMat, skin, 0.08);
+      armL.position.set(-0.225, 0.41, 0);
+      armR.position.set(0.225, 0.41, 0);
+      const ph = new THREE.Mesh(boxGeo, mat("#1E2433"));
+      ph.scale.set(0.05, 0.13, 0.08);
+      ph.position.set(0, -0.44, 0.05);
       armR.add(ph);
       const head = new THREE.Group();
-      head.position.y = 0.72;
-      const skull = new THREE.Mesh(new THREE.SphereGeometry(0.14, 18, 18), skin);
-      skull.castShadow = true;
-      const hair = new THREE.Mesh(new THREE.SphereGeometry(0.147, 18, 18, 0, Math.PI * 2, 0, Math.PI / 1.9), mat(i % 3 === 0 ? "#3B2A20" : i % 3 === 1 ? "#1E2433" : "#8C5A35"));
-      hair.position.y = 0.015;
-      hair.rotation.x = -0.25;
-      head.add(skull, hair);
-      hips.add(torso, legL, legR, armL, armR, head);
+      head.position.y = 0.6;
+      const skull = cube(0.28, 0.28, 0.28, skin);
+      skull.position.y = 0.0;
+      const hairMat = mat(i % 3 === 0 ? "#3B2A20" : i % 3 === 1 ? "#1E2433" : "#8C5A35");
+      const hair = cube(0.3, 0.09, 0.3, hairMat);
+      hair.position.y = 0.13;
+      const hairBack = cube(0.3, 0.16, 0.07, hairMat);
+      hairBack.position.set(0, 0.04, -0.12);
+      const eyeMat = mat("#1E2433");
+      const eyeL = cube(0.04, 0.05, 0.01, eyeMat);
+      const eyeR = cube(0.04, 0.05, 0.01, eyeMat);
+      eyeL.position.set(-0.06, 0.01, 0.141);
+      eyeR.position.set(0.06, 0.01, 0.141);
+      eyeL.castShadow = eyeR.castShadow = false;
+      head.add(skull, hair, hairBack, eyeL, eyeR);
+      hips.add(torso, belt, legL, legR, armL, armR, head);
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.26, 0.34, 32), ringMat);
       ring.rotation.x = -Math.PI / 2;
       ring.position.y = 0.015;
@@ -469,11 +480,11 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       p.legL.rotation.x = s * 0.55 * k;
       p.legR.rotation.x = -s * 0.55 * k;
       p.armL.rotation.x = -s * 0.45 * k;
-      p.hips.position.y = 0.5 + Math.abs(Math.cos(p.stride * Math.PI)) * 0.025 * k;
+      p.hips.position.y = 0.5 + Math.abs(Math.cos(p.stride * Math.PI)) * 0.02 * k;
       p.hips.rotation.y = s * 0.08 * k;
       if (p.talking) {
         // phone held to the ear
-        p.armR.rotation.set(-2.1, 0, -0.6);
+        p.armR.rotation.set(-2.5, 0, -0.42);
         p.head.rotation.z = 0.12;
         p.bubble.material.opacity = 0.75 + Math.sin(t * 4 + p.phase) * 0.25;
       } else {
@@ -666,6 +677,8 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       user.panX += (userTo.panX - user.panX) * kz;
       user.panY += (userTo.panY - user.panY) * kz;
       applyCamera();
+      const labelScale = (cam.w * user.zoom) / 13.6;
+      for (const l of labels) l.scale.copy(l.userData.base as THREE.Vector3).multiplyScalar(1.7 * labelScale); // constant on-screen size
 
       if (!reduce) {
         for (const p of persons.values()) updatePerson(p, dt, t);
