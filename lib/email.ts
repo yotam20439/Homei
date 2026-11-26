@@ -1,10 +1,16 @@
 import "server-only";
+import { isUsernameAccount } from "@/lib/username";
 
 type Mail = { to: string; subject: string; html: string; text: string };
 
 /** Sends email through Resend. Without RESEND_API_KEY in development, prints to the server log instead. */
 export async function sendEmail(mail: Mail): Promise<void> {
   const key = process.env.RESEND_API_KEY;
+  // Username accounts (e.g. "admin") have no real inbox: their codes go to the server log only.
+  if (isUsernameAccount(mail.to)) {
+    console.info(`[email not sent, username account] to=${mail.to} subject=${mail.subject}\n${mail.text}`);
+    return;
+  }
   if (!key) {
     if (process.env.NODE_ENV === "production" && process.env.EMAIL_LOG_FALLBACK !== "1") throw new Error("RESEND_API_KEY is not configured");
     console.info(`[email not sent, no RESEND_API_KEY] to=${mail.to} subject=${mail.subject}\n${mail.text}`);

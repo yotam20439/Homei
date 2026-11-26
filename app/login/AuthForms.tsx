@@ -8,7 +8,7 @@ export function SignInForm({ next }: { next: string }) {
   return (
     <form action={action} className="stack">
       <input type="hidden" name="next" value={next} />
-      <div className="field"><label className="label" htmlFor="email">אימייל</label><input id="email" name="email" type="email" autoComplete="username" required className="input" dir="ltr" /></div>
+      <div className="field"><label className="label" htmlFor="email">אימייל או שם משתמש</label><input id="email" name="email" type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} required className="input" dir="ltr" /></div>
       <div className="field"><label className="label" htmlFor="password">סיסמה</label><input id="password" name="password" type="password" autoComplete="current-password" required className="input" dir="ltr" /></div>
       {state.error && <p className="alert-box" role="alert">{state.error}</p>}
       <button className="btn btn-primary btn-block" disabled={pending}>{pending ? "מתחברים…" : "כניסה"}</button>

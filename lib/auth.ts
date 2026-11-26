@@ -5,11 +5,13 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { DEVICE_COOKIE, readDevice } from "@/lib/device";
 import { env } from "@/lib/env";
+import { isUsernameAccount } from "@/lib/username";
 
 export type SessionUser = { id: string; email: string; name: string | null; avatar: string | null };
 
 export function isAllowedEmail(email: string | undefined | null): boolean {
   if (!email) return false;
+  if (isUsernameAccount(email)) return true;
   const domain = email.toLowerCase().split("@")[1];
   if (!domain) return false;
   const allowed = env.allowedDomains();

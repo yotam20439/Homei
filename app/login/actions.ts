@@ -7,6 +7,7 @@ import { isAllowedEmail } from "@/lib/auth";
 import { safeNext } from "@/lib/device";
 import { codeMatches, hashCode, newCode } from "@/lib/codes";
 import { layout, sendEmail } from "@/lib/email";
+import { toLoginEmail } from "@/lib/username";
 
 export type AuthState = { error?: string; info?: string; step?: "code" };
 
@@ -15,11 +16,11 @@ const Password = z.string().min(10, "הסיסמה צריכה להכיל לפחו
 const GENERIC = "האימייל או הסיסמה שגויים.";
 
 export async function signIn(_: AuthState, form: FormData): Promise<AuthState> {
-  const email = Email.safeParse(form.get("email"));
+  const login = toLoginEmail(String(form.get("email") ?? ""));
   const password = z.string().min(1).max(128).safeParse(form.get("password"));
-  if (!email.success || !password.success) return { error: GENERIC };
+  if (!login || !password.success) return { error: GENERIC };
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email: email.data, password: password.data });
+  const { error } = await supabase.auth.signInWithPassword({ email: login, password: password.data });
   if (error) return { error: error.status === 429 ? "יותר מדי ניסיונות. נסו שוב בעוד כמה דקות." : GENERIC };
   redirect(`/verify?next=${encodeURIComponent(safeNext(String(form.get("next") ?? "/")))}`);
 }
