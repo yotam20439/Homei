@@ -37,7 +37,7 @@ export default async function BillPage({ params }: { params: Promise<{ id: strin
       {billAlerts.map((a) => (
         <div key={a.key} className="alert-box"><b>{a.title}</b><div className="small">{a.body}</div></div>
       ))}
-      {avg != null && <p className="muted small" style={{ margin: 0 }}>ממוצע לחודש ב-12 החודשים הקרובים: <b style={{ color: "#fff" }}>{nis(Math.round(avg))}</b></p>}
+      {avg != null && <p className="muted small" style={{ margin: 0 }}>ממוצע לחודש ב-12 החודשים הקרובים: <b style={{ color: "var(--text)" }}>{nis(Math.round(avg))}</b></p>}
       {signed && <a href={signed} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm" style={{ alignSelf: "flex-start" }}>צפייה במסמך המקורי</a>}
 
       {(charges ?? []).length > 0 && (

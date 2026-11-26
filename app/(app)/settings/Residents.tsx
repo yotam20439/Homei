@@ -2,6 +2,7 @@
 import { useActionState, useOptimistic, useRef, useTransition } from "react";
 import { useFormStatus } from "react-dom";
 import ConfirmButton from "@/components/ConfirmButton";
+import HouseLoader from "@/components/HouseLoader";
 import { addResident, removeResident, setResidentRole } from "./actions";
 
 type R = { id: string; name: string; color: string; role: "self" | "partner" | "child" | "other"; isMe: boolean; pending?: boolean };
@@ -15,7 +16,7 @@ function AddButton() {
   const { pending } = useFormStatus();
   return (
     <button className="btn btn-primary" disabled={pending} aria-busy={pending}>
-      {pending ? <><span className="btn-spinner" aria-hidden="true" />מוסיפים…</> : "הוספה"}
+      {pending ? <><HouseLoader size={20} />מוסיפים…</> : "הוספה"}
     </button>
   );
 }
@@ -56,7 +57,7 @@ export default function Residents({ residents }: { residents: R[] }) {
               {ROLES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
             </select>
           )}
-          {r.pending && <span className="btn-spinner dark" aria-hidden="true" />}
+          {r.pending && <HouseLoader size={22} />}
           {!r.pending && !r.isMe && list.length > 1 && (
             <form action={removeResident}>
               <input type="hidden" name="id" value={r.id} />

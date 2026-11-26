@@ -8,6 +8,7 @@ import { env } from "@/lib/env";
 import ConfirmButton from "@/components/ConfirmButton";
 import InviteForm from "./InviteForm";
 import Residents from "./Residents";
+import ThemePicker from "./ThemePicker";
 import { removeMember, revokeDevice, revokeInvite, updateHousehold } from "./actions";
 
 export default async function Settings() {
@@ -23,12 +24,18 @@ export default async function Settings() {
   ]);
   const ids = (members ?? []).map((x) => x.user_id);
   const { data: profiles } = ids.length ? await supabase.from("profiles").select("id, email, full_name").in("id", ids) : { data: [] as { id: string; email: string; full_name: string | null }[] };
-  const currentDevice = await readDevice(env.deviceSecret(), (await cookies()).get(DEVICE_COOKIE)?.value, user.id);
+  const cookieStore = await cookies();
+  const currentDevice = await readDevice(env.deviceSecret(), cookieStore.get(DEVICE_COOKIE)?.value, user.id);
   const { data: devices } = await createAdminClient().from("trusted_devices").select("id, user_agent, last_seen_at").eq("user_id", user.id).is("revoked_at", null).order("last_seen_at", { ascending: false });
 
   return (
     <main className="page">
       <h1 className="page-title">הגדרות</h1>
+
+      <section className="card">
+        <h2>מראה</h2>
+        <ThemePicker initial={(() => { const v = cookieStore.get("homei_theme")?.value; return v === "light" || v === "system" ? v : "dark"; })()} />
+      </section>
 
       <section className="card" id="residents">
         <div className="between"><h2>בני הבית</h2><span className="muted small">{residents.length} נפשות</span></div>

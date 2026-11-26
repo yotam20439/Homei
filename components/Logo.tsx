@@ -23,7 +23,7 @@ export function LogoLockup({ size = 34, light = false }: { size?: number; light?
   return (
     <span className="logo-lockup" dir="ltr">
       <LogoMark size={size} />
-      <span className="logo-word" style={{ color: light ? "#463A5E" : "#E9DDF2", fontSize: size * 0.82 }}>Homei</span>
+      <span className="logo-word" style={{ fontSize: size * 0.82, ...(light ? { color: "#463A5E" } : {}) }}>Homei</span>
     </span>
   );
 }

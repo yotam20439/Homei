@@ -3,16 +3,18 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
 export type Room3D = "salon" | "kitchen" | "bath" | "beds";
-export type View3D = "all" | Room3D;
+export type View3D = "all" | Room3D | `obj:${string}` | `person:${string}`;
+export type Pick3D = { room?: Room3D; cat?: string; person?: string };
 export type Person3D = { id: string; name: string; color: string; talking: boolean; warn: boolean; kind?: "adult" | "child" };
 
 type Props = {
   view: View3D;
   people: Person3D[];
-  warnRooms: Room3D[];
+  /** Bill categories that need attention (orange label on the object). */
+  warnCats: string[];
   /** Screen-space vertical centre (CSS px from the top of the canvas) where the focus should sit. */
   focusY: number;
-  onPick: (room: Room3D) => void;
+  onPick: (p: Pick3D) => void;
   onReady?: () => void;
 };
 
@@ -41,12 +43,15 @@ const CAMS: Record<View3D, { t: [number, number, number]; w: number }> = {
   bath: { t: [1.9, 0.5, 1.4], w: 5.2 },
   beds: { t: [4.6, 0.6, 3.0], w: 9.6 },
 };
-const WARN_AT: Record<Room3D, [number, number, number]> = {
-  salon: [4.65, 1.55, 4.55],
-  bath: [1.1, 1.35, 0.75],
-  kitchen: [0.6, 1.75, 7.5],
-  beds: [0, -10, 0],
-};
+// Each bill lives on an object; labels and taps are per object.
+export const OBJECTS: { cat: string; label: string; at: [number, number, number]; cam: { t: [number, number, number]; w: number } }[] = [
+  { cat: "tv", label: "טלוויזיה", at: [7.2, 1.95, 4.4], cam: { t: [7.2, 0.8, 5.2], w: 4.6 } },
+  { cat: "internet", label: "אינטרנט", at: [4.67, 1.15, 4.55], cam: { t: [4.8, 0.6, 5.0], w: 3.8 } },
+  { cat: "landline", label: "טלפון קווי", at: [9.3, 1.05, 9.15], cam: { t: [9.0, 0.6, 8.7], w: 3.8 } },
+  { cat: "gas", label: "גז", at: [0.6, 1.5, 7.45], cam: { t: [1.0, 0.8, 7.5], w: 3.6 } },
+  { cat: "electricity", label: "חשמל", at: [3.3, 2.35, 6.6], cam: { t: [2.6, 1.0, 7.4], w: 4.8 } },
+  { cat: "water", label: "מים", at: [1.15, 1.05, 0.7], cam: { t: [1.6, 0.4, 1.2], w: 3.8 } },
+];
 
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
@@ -80,36 +85,13 @@ function textSprite(text: string, opts: { size?: number; color?: string; bg?: st
   return s;
 }
 
-function warnSprite() {
-  const c = document.createElement("canvas");
-  c.width = c.height = 128;
-  const ctx = c.getContext("2d")!;
-  ctx.fillStyle = "#FF6A2C";
-  ctx.beginPath();
-  ctx.arc(64, 64, 52, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.lineWidth = 9;
-  ctx.strokeStyle = "#FFFFFF";
-  ctx.stroke();
-  ctx.fillStyle = "#FFFFFF";
-  ctx.font = "900 78px Rubik, system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("!", 64, 70);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-  s.renderOrder = 10;
-  s.scale.set(0.55, 0.55, 1);
-  return s;
-}
 
-export default function Apartment3D({ view, people, warnRooms, focusY, onPick, onReady }: Props) {
+export default function Apartment3D({ view, people, warnCats, focusY, onPick, onReady }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const api = useRef<{
     setView: (v: View3D, focusY: number) => void;
     setPeople: (p: Person3D[]) => void;
-    setWarn: (w: Room3D[]) => void;
+    setWarn: (w: string[]) => void;
     pickable: boolean;
   } | null>(null);
   const onPickRef = useRef(onPick);
@@ -183,14 +165,7 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       f.userData.pick = r.pick;
       scene.add(f);
       floors.push(f);
-      const label = textSprite(r.label, { size: 44, color: "#FFFFFF", bg: "rgba(17,18,20,0.82)", pad: 16, radius: 30 });
-      const sm = label.material as THREE.SpriteMaterial;
-      sm.depthTest = false;
-      label.renderOrder = 20;
-      label.position.set((r.x[0] + r.x[1]) / 2, 2.05, (r.z[0] + r.z[1]) / 2);
-      label.userData.base = label.scale.clone();
-      labels.push(label);
-      scene.add(label);
+
     }
     // bathroom tiles + kitchen checker
     for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) if ((i + j) % 2) box(i + 0.02, j + 0.02, 0.96, 0.96, 0.004, "#BCDBE4", 0.002);
@@ -220,7 +195,7 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
     box(4, 3.92, 2.0, 0.16, PH, PW); box(7.4, 3.92, 2.6, 0.16, PH, PW);
 
     // ---------- Bathroom: tub, sink, toilet, running water ----------
-    box(0.2, 0.2, 1.9, 1.0, 0.55, "#FFFFFF", 0, { roughness: 0.35 });
+    const tub = box(0.2, 0.2, 1.9, 1.0, 0.55, "#FFFFFF", 0, { roughness: 0.35 });
     const water = box(0.32, 0.32, 1.66, 0.76, 0.02, "#6FC0E6", 0.5, { roughness: 0.1, emissive: "#3A9BD0", emissiveIntensity: 0.25 });
     box(0.25, 0.55, 0.12, 0.12, 0.35, "#C9CED6", 0.55, { metalness: 0.6, roughness: 0.3 });
     box(0.25, 0.57, 0.3, 0.08, 0.06, "#C9CED6", 0.86, { metalness: 0.6, roughness: 0.3 });
@@ -255,7 +230,7 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
     // ---------- Kitchen: counter, stove with gas flame, fridge, table, pendant ----------
     box(0.18, 6.2, 0.85, 3.2, 0.88, "#FFFFFF");
     box(0.15, 6.18, 0.9, 3.24, 0.05, "#B9B2A3", 0.88);
-    box(0.28, 7.15, 0.62, 0.62, 0.02, "#2B2F36", 0.93);
+    const stove = box(0.28, 7.15, 0.62, 0.62, 0.02, "#2B2F36", 0.93);
     const flames: THREE.Mesh[] = [];
     for (const [fx, fz] of [[0.44, 7.3], [0.74, 7.3], [0.44, 7.6], [0.74, 7.6]] as [number, number][]) {
       const f = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.12, 10), mat("#3FA7FF", { emissive: "#3FA7FF", emissiveIntensity: 2.2, transparent: true, opacity: 0.9 }));
@@ -264,7 +239,7 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       flames.push(f);
     }
     cyl(0.6, 7.6, 0.16, 0.18, "#D0533A", 1.03, 18, { roughness: 0.4 });
-    box(2.85, 6.2, 0.95, 0.8, 1.95, "#E9ECEF", 0, { roughness: 0.35 });
+    const fridge = box(2.85, 6.2, 0.95, 0.8, 1.95, "#E9ECEF", 0, { roughness: 0.35 });
     box(2.85, 6.98, 0.02, 0.02, 0.5, "#9AA0AB", 1.1);
     box(1.75, 8.25, 1.35, 1.0, 0.06, "#B7865A", 0.72);
     cyl(2.42, 8.75, 0.07, 0.72, "#8C6440");
@@ -309,7 +284,7 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
     cyl(7.22, 7.22, 0.06, 0.35, "#8C6440");
     cyl(7.0, 7.1, 0.07, 0.12, "#FFFFFF", 0.43);
     box(4.3, 4.3, 0.75, 0.5, 0.6, "#FFFFFF");
-    box(4.45, 4.38, 0.45, 0.32, 0.1, "#2B2F36", 0.6);
+    const router = box(4.45, 4.38, 0.45, 0.32, 0.1, "#2B2F36", 0.6);
     const leds = [0, 1, 2].map((i) => {
       const m = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 8), new THREE.MeshStandardMaterial({ color: "#2FBF5B", emissive: "#2FBF5B", emissiveIntensity: 3 }));
       m.position.set(4.55 + i * 0.1, 0.66, 4.71);
@@ -345,9 +320,11 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       group: THREE.Group; hips: THREE.Group; legL: Limb; legR: Limb; armL: Limb; armR: Limb; head: THREE.Group;
       ring: THREE.Mesh; bubble: THREE.Sprite; phone: THREE.Mesh; torsoMat: THREE.MeshStandardMaterial;
       nav: { p: [number, number][]; e: [number, number][] }; at: number; next: number; wait: number;
-      heading: number; stride: number; talking: boolean; warn: boolean; phase: number; scale: number; kind: "adult" | "child";
+      heading: number; stride: number; talking: boolean; warn: boolean; phase: number; scale: number; kind: "adult" | "child"; name: string; id: string;
     };
     const persons = new Map<string, P>();
+    // eslint-disable-next-line prefer-const
+    let syncPersonLabels: (() => void) | undefined;
     const skin = mat("#F2C9A0");
     const pants = [mat("#3B4252"), mat("#2F4F86"), mat("#5C4B3B"), mat("#4A5A3C")];
     const shoes = mat("#1E2433");
@@ -426,7 +403,7 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       const start = i % nav.p.length;
       group.position.set(nav.p[start][0], 0, nav.p[start][1]);
       scene.add(group);
-      return { group, hips, legL, legR, armL, armR, head, ring, bubble, phone: ph, torsoMat, nav, at: start, next: start, wait: 0.5 + Math.random() * 2, heading: Math.random() * Math.PI * 2, stride: 0, talking: p.talking, warn: p.warn, phase: Math.random() * 10, scale, kind: child ? "child" : "adult" };
+      return { group, hips, legL, legR, armL, armR, head, ring, bubble, phone: ph, torsoMat, nav, at: start, next: start, wait: 0.5 + Math.random() * 2, heading: Math.random() * Math.PI * 2, stride: 0, talking: p.talking, warn: p.warn, phase: Math.random() * 10, scale, kind: child ? "child" : "adult", name: p.name, id: p.id };
     };
     const setPeople = (list: Person3D[]) => {
       const keep = new Set(list.map((p) => p.id));
@@ -443,7 +420,10 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
         pp.bubble.visible = p.talking;
         pp.ring.visible = p.warn;
         pp.torsoMat.color.set(p.color);
+        pp.name = p.name;
+        pp.group.traverse((o) => { o.userData.person = p.id; if ((o as THREE.Mesh).isMesh && !pickables.includes(o)) pickables.push(o); });
       });
+      syncPersonLabels?.();
     };
     const angleLerp = (a: number, b: number, k: number) => {
       let d = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
@@ -501,17 +481,67 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       }
     };
 
-    // ---------- Warning markers ----------
-    const warns = new Map<Room3D, THREE.Sprite>();
-    (Object.keys(WARN_AT) as Room3D[]).forEach((r) => {
-      if (r === "beds") return;
-      const s = warnSprite();
-      s.position.set(...WARN_AT[r]);
-      s.visible = false;
-      scene.add(s);
-      warns.set(r, s);
-    });
-    const setWarn = (list: Room3D[]) => warns.forEach((s, r) => (s.visible = list.includes(r)));
+    // ---------- Object labels (one per bill) ----------
+    const pickables: THREE.Object3D[] = [];
+    const tag = (o: THREE.Object3D, cat: string) => { o.userData.cat = cat; pickables.push(o); };
+    tag(screen, "tv"); tag(router, "internet"); tag(phone, "landline"); tag(stove, "gas"); tag(fridge, "electricity"); tag(tub, "water");
+    flames.forEach((f) => tag(f, "gas"));
+    type ObjLabel = { normal: THREE.Sprite; warn: THREE.Sprite; cat?: string; person?: P; y?: number };
+    const objLabels: ObjLabel[] = [];
+    const makeLabel = (text: string, at: THREE.Vector3, cat?: string): ObjLabel => {
+      const normal = textSprite(text, { size: 40, color: "#FFFFFF", bg: "rgba(17,18,20,0.85)", pad: 14, radius: 28 });
+      const warn = textSprite("! " + text, { size: 40, color: "#FFFFFF", bg: "#FF6A2C", pad: 14, radius: 28 });
+      for (const s of [normal, warn]) {
+        (s.material as THREE.SpriteMaterial).depthTest = false;
+        s.renderOrder = 20;
+        s.center.set(0.5, 0);
+        s.position.copy(at);
+        s.userData.base = s.scale.clone();
+        if (cat) s.userData.cat = cat;
+        labels.push(s);
+        pickables.push(s);
+        scene.add(s);
+      }
+      warn.visible = false;
+      return { normal, warn, cat };
+    };
+    for (const o of OBJECTS) objLabels.push(makeLabel(o.label, new THREE.Vector3(...o.at), o.cat));
+    let warnSet = new Set<string>();
+    const setWarn = (cats: string[]) => {
+      warnSet = new Set(cats);
+      for (const l of objLabels) {
+        const w = l.cat ? warnSet.has(l.cat) : !!l.person?.warn;
+        l.warn.visible = w;
+        l.normal.visible = !w;
+      }
+    };
+    // Cellular labels follow the residents who have a line.
+    const personLabels = new Map<string, ObjLabel>();
+    syncPersonLabels = () => {
+      for (const [id, p] of persons) {
+        let l = personLabels.get(id);
+        if (p.talking && !l) {
+          l = makeLabel("סלולר · " + p.name, p.group.position.clone());
+          l.person = p;
+          l.normal.userData.person = id;
+          l.warn.userData.person = id;
+          personLabels.set(id, l);
+          objLabels.push(l);
+        }
+        if (l) {
+          const show = p.talking;
+          l.normal.visible = show && !p.warn;
+          l.warn.visible = show && p.warn;
+        }
+      }
+      for (const [id, l] of personLabels) {
+        if (!persons.has(id)) {
+          for (const s of [l.normal, l.warn]) { scene.remove(s); labels.splice(labels.indexOf(s), 1); pickables.splice(pickables.indexOf(s), 1); }
+          personLabels.delete(id);
+          objLabels.splice(objLabels.indexOf(l), 1);
+        }
+      }
+    };
 
     // ---------- Camera ----------
     let size = { w: 1, h: 1 };
@@ -539,7 +569,16 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
     };
     const setView = (v: View3D, focusPx: number) => {
       from.t.copy(cam.t); from.w = cam.w; from.fy = cam.fy;
-      to.t.set(...CAMS[v].t); to.w = CAMS[v].w; to.fy = Math.min(0.8, Math.max(0.2, focusPx / size.h));
+      if (v.startsWith("obj:")) {
+        const o = OBJECTS.find((x) => x.cat === v.slice(4));
+        to.t.set(...(o?.cam.t ?? CAMS.all.t)); to.w = o?.cam.w ?? CAMS.all.w;
+      } else if (v.startsWith("person:")) {
+        const p = persons.get(v.slice(7));
+        if (p) { to.t.set(p.group.position.x, 0.7, p.group.position.z); to.w = 4.2; } else { to.t.set(...CAMS.beds.t); to.w = CAMS.beds.w; }
+      } else {
+        const c = CAMS[v as keyof typeof CAMS];
+        to.t.set(...c.t); to.w = c.w;
+      } to.fy = Math.min(0.8, Math.max(0.2, focusPx / size.h));
       tween = reduce ? 1 : 0;
       userTo.zoom = 1; userTo.panX = 0; userTo.panY = 0;
       if (reduce) { cam.t.copy(to.t); cam.w = to.w; cam.fy = to.fy; }
@@ -565,7 +604,11 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       const r = renderer.domElement.getBoundingClientRect();
       ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
       ray.setFromCamera(ndc, camera);
-      return ray.intersectObjects(floors, false)[0]?.object.userData.pick as Room3D | undefined;
+      const obj = ray.intersectObjects(pickables, false)[0]?.object;
+      if (obj?.userData.person) return { person: obj.userData.person as string };
+      if (obj?.userData.cat) return { cat: obj.userData.cat as string };
+      const room = ray.intersectObjects(floors, false)[0]?.object.userData.pick as Room3D | undefined;
+      return room ? { room } : undefined;
     };
     // Gestures: tap = pick a room (full view), drag = pan, wheel / two-finger pinch = zoom.
     const pts = new Map<number, { x: number; y: number }>();
@@ -607,7 +650,7 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
     const onMove = (e: PointerEvent) => {
       const prev = pts.get(e.pointerId);
       if (!prev) {
-        renderer.domElement.style.cursor = api.current?.pickable && hit(e) ? "pointer" : "grab";
+        renderer.domElement.style.cursor = hit(e) && (api.current?.pickable || !hit(e)?.room) ? "pointer" : "grab";
         return;
       }
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -636,9 +679,9 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       pts.delete(e.pointerId);
       if (pts.size < 2) pinch = null;
       if (pts.size === 0 && down) {
-        if (!down.moved && api.current?.pickable) {
-          const room = hit(e);
-          if (room) onPickRef.current(room);
+        if (!down.moved) {
+          const target = hit(e);
+          if (target && (target.room ? api.current?.pickable : true)) onPickRef.current(target);
         }
         down = null;
         renderer.domElement.style.cursor = "grab";
@@ -678,7 +721,11 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       user.panY += (userTo.panY - user.panY) * kz;
       applyCamera();
       const labelScale = (cam.w * user.zoom) / 13.6;
-      for (const l of labels) l.scale.copy(l.userData.base as THREE.Vector3).multiplyScalar(1.7 * labelScale); // constant on-screen size
+      for (const l of labels) l.scale.copy(l.userData.base as THREE.Vector3).multiplyScalar(1.45 * labelScale); // constant on-screen size
+      for (const l of personLabels.values()) {
+        const p = l.person!;
+        for (const s of [l.normal, l.warn]) s.position.set(p.group.position.x, 1.55 * p.scale + 0.05, p.group.position.z);
+      }
 
       if (!reduce) {
         for (const p of persons.values()) updatePerson(p, dt, t);
@@ -704,12 +751,12 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
         const ringPhase = t % 9;
         phone.rotation.z = ringPhase < 1.2 ? Math.sin(t * 60) * 0.08 : 0;
         plant.rotation.y = Math.sin(t * 0.7) * 0.06;
-        warns.forEach((s) => {
-          const k = 0.55 + Math.sin(t * 5) * 0.05;
-          s.scale.set(k, k, 1);
-          s.position.y = s.userData.y0 ?? (s.userData.y0 = s.position.y);
-          s.position.y = (s.userData.y0 as number) + Math.sin(t * 2.4) * 0.06;
-        });
+        for (const l of objLabels) {
+          if (l.warn.visible) {
+            const k = 1 + Math.sin(t * 5) * 0.06;
+            l.warn.scale.multiplyScalar(k);
+          }
+        }
         ball.position.x = 2.7 + Math.sin(t * 0.9) * 0.25;
         ball.rotation.z = -Math.sin(t * 0.9) * 2;
       }
@@ -748,11 +795,11 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
 
   useEffect(() => {
     if (!api.current) return;
-    api.current.pickable = view === "all";
+    api.current.pickable = view === "all"; // room floors only in the full view; objects are always tappable
     api.current.setView(view, focusY);
   }, [view, focusY]);
   useEffect(() => api.current?.setPeople(people), [people]);
-  useEffect(() => api.current?.setWarn(warnRooms), [warnRooms]);
+  useEffect(() => api.current?.setWarn(warnCats), [warnCats]);
 
   return <div ref={host} className="apt-3d" aria-hidden="true" />;
 }

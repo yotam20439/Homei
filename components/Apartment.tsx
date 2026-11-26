@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Icon from "./Icon";
 import { LogoMark } from "./Logo";
-import type { Room3D, View3D } from "./Apartment3D";
+import type { Pick3D, Room3D, View3D } from "./Apartment3D";
+import { OBJECTS } from "./Apartment3D";
 
 const Apartment3D = dynamic(() => import("./Apartment3D"), { ssr: false });
 
@@ -29,18 +30,22 @@ export type Row = {
   warn: boolean;
   missing?: boolean;
   href: string;
+  /** Bill category and (for cellular) the resident, so taps on 3D objects open the right bill. */
+  cat?: string;
+  residentId?: string;
 };
 
 export type Person = { id: string; name: string; color: string; talking: boolean; warn: boolean; kind?: "adult" | "child" };
 
-type District = "all" | "house" | "salon" | "kitchen" | "bath" | "beds" | "alerts";
+type RoomDistrict = "all" | "house" | "salon" | "kitchen" | "bath" | "beds" | "alerts";
+type District = RoomDistrict | `obj:${string}` | `person:${string}`;
 
 // Positions in the 390x280 illustration (see components/apartmentSvg.ts).
 const SLOTS: [number, number][] = [
   [279.6, 158.5], [227.4, 199], [164.4, 127.9], [126.6, 127], [108.6, 154], [133.8, 206.2],
   [300, 120], [250, 215],
 ];
-const CAM: Record<Exclude<District, "all">, { c: [number, number]; s: number; title: string }> = {
+const CAM: Record<Exclude<RoomDistrict, "all">, { c: [number, number]; s: number; title: string }> = {
   house: { c: [195, 135], s: 1.15, title: "כל הבית" },
   salon: { c: [200, 182], s: 1.9, title: "סלון · טלוויזיה, אינטרנט וטלפון" },
   kitchen: { c: [86, 146], s: 2.1, title: "מטבח · חשמל וגז" },
@@ -70,6 +75,13 @@ const WARN_POS: Partial<Record<Row["room"], [number, number]>> = { salon: [197, 
 
 type Box = [number, number, number, number];
 const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+
+const OBJ_ROOM: Record<string, Exclude<RoomDistrict, "all">> = { tv: "salon", internet: "salon", landline: "salon", gas: "kitchen", electricity: "kitchen", water: "bath" };
+function roomOf(d: District): Exclude<RoomDistrict, "all"> | "all" {
+  if (d.startsWith("obj:")) return OBJ_ROOM[d.slice(4)] ?? "house";
+  if (d.startsWith("person:")) return "beds";
+  return d as RoomDistrict;
+}
 
 export default function Apartment({
   householdName,
@@ -102,8 +114,11 @@ export default function Apartment({
     if (d === "all") return [];
     if (d === "alerts") return warnRows;
     if (d === "house") return rows;
+    if (d.startsWith("obj:")) return rows.filter((r) => r.cat === d.slice(4));
+    if (d.startsWith("person:")) return rows.filter((r) => r.residentId === d.slice(7));
     return rows.filter((r) => r.room === d);
   }, [d, rows, warnRows]);
+  const sheetTitle = d === "all" ? "" : d.startsWith("obj:") ? (OBJECTS.find((o) => o.cat === d.slice(4))?.label ?? "") : d.startsWith("person:") ? `סלולר · ${people.find((p) => p.id === d.slice(7))?.name ?? ""}` : CAM[d as Exclude<RoomDistrict, "all">].title;
   const sheetTotal = sheetRows.filter((r) => !r.missing).reduce((a, r) => a + r.value, 0);
   const isAll = d === "all";
 
@@ -116,7 +131,8 @@ export default function Apartment({
       const cy = (visibleTop + visibleBottom) / 2;
       return [195 - 195 / s, 135 - cy / s, DESIGN_W / s, H / s];
     }
-    const { c, s } = CAM[d];
+    const r0 = roomOf(d);
+    const { c, s } = CAM[r0 === "all" ? "house" : r0];
     const sheetH = Math.min(64 + sheetRows.length * 50, 500);
     const ty = HEADER_BOTTOM + (H - 94 - sheetH - HEADER_BOTTOM) / 2;
     return [c[0] - 195 / s, c[1] - ty / s, DESIGN_W / s, H / s];
@@ -125,14 +141,18 @@ export default function Apartment({
   const [use3D, setUse3D] = useState(false);
   const [ready3D, setReady3D] = useState(false);
   useEffect(() => setUse3D(hasWebGL()), []);
-  const view3D: View3D = d === "salon" || d === "kitchen" || d === "bath" || d === "beds" ? d : "all";
+  const view3D: View3D = d === "salon" || d === "kitchen" || d === "bath" || d === "beds" || d.startsWith("obj:") || d.startsWith("person:") ? (d as View3D) : "all";
   const focusY = useMemo(() => {
     if (view3D === "all") return HEADER_BOTTOM + (fit.h - 170 - HEADER_BOTTOM) / 2;
     const sheetH = Math.min(64 + sheetRows.length * 50, 500);
     return HEADER_BOTTOM + (fit.h - 94 - sheetH - HEADER_BOTTOM) / 2;
   }, [view3D, fit.h, sheetRows.length]);
-  const warnRooms = useMemo(() => (["salon", "kitchen", "bath"] as Room3D[]).filter((r) => rows.some((x) => x.room === r && x.warn)), [rows]);
-  const pick3D = useCallback((r: Room3D) => setD(r), []);
+  const warnCats = useMemo(() => [...new Set(rows.filter((x) => x.warn && x.cat).map((x) => x.cat!))], [rows]);
+  const pick3D = useCallback((p: Pick3D) => {
+    if (p.person) setD(`person:${p.person}`);
+    else if (p.cat) setD(`obj:${p.cat}`);
+    else if (p.room) setD(p.room);
+  }, []);
 
   const [box, setBox] = useState<Box>(target);
   const boxRef = useRef<Box>(target);
@@ -157,7 +177,7 @@ export default function Apartment({
     <div className="apt" dir="rtl" style={{ zoom: fit.zoom, height: fit.h }}>
       {use3D && (
         <div className="apt-3d-wrap" style={{ opacity: ready3D ? 1 : 0 }}>
-          <Apartment3D view={view3D} people={people} warnRooms={warnRooms} focusY={focusY} onPick={pick3D} onReady={() => setReady3D(true)} />
+          <Apartment3D view={view3D} people={people} warnCats={warnCats} focusY={focusY} onPick={pick3D} onReady={() => setReady3D(true)} />
         </div>
       )}
       <svg className="apt-svg" style={{ opacity: ready3D ? 0 : 1, pointerEvents: ready3D ? "none" : undefined }} viewBox={box.join(" ")} preserveAspectRatio="xMidYMin slice" aria-hidden={ready3D || !isAll}>
@@ -214,7 +234,7 @@ export default function Apartment({
         </div>
         <div role="tablist" aria-label="חדרים" className="chips">
           {CHIPS.map((c) => {
-            const on = c.id === d || (c.id === "all" && d === "house");
+            const on = c.id === roomOf(d) || (c.id === "all" && d === "house");
             return (
               <button key={c.id} role="tab" aria-selected={on} className={"chip" + (on ? " on" : "")} onClick={() => setD(c.id)}>
                 <span className="chip-ring">
@@ -250,7 +270,7 @@ export default function Apartment({
       >
         <div className="sheet-head">
           <div>
-            <div className="sheet-title">{d !== "all" ? CAM[d].title : ""}</div>
+            <div className="sheet-title">{sheetTitle}</div>
             <div className="muted small">{d === "alerts" ? `${warnRows.length} חשבונות` : `₪${Math.round(sheetTotal).toLocaleString("en-US")} בחודש`}</div>
           </div>
           <button className="back-pill" onClick={() => setD("all")}><Icon name="bars" size={13} width={2.6} />חזרה</button>

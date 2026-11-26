@@ -3,6 +3,7 @@ import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import Icon from "./Icon";
+import { LogoMark } from "./Logo";
 
 const TABS = [
   { href: "/", label: "בית", icon: "home" },
@@ -14,7 +15,11 @@ const TABS = [
 
 function Pending() {
   const { pending } = useLinkStatus();
-  return <span className={"nav-spinner" + (pending ? " on" : "")} aria-hidden="true" />;
+  return (
+    <span className={"nav-pending" + (pending ? " on" : "")} aria-hidden="true">
+      <span className="hl-body"><LogoMark size={18} /></span>
+    </span>
+  );
 }
 
 export default function BottomNav({ alertCount = 0 }: { alertCount?: number }) {
@@ -30,7 +35,7 @@ export default function BottomNav({ alertCount = 0 }: { alertCount?: number }) {
         if (t.primary)
           return (
             <Link key={t.href} href={t.href} className="nav-plus" aria-label="סריקת חוזה או חשבונית" onClick={() => setTapped(t.href)}>
-              <Icon name="plus" size={24} color="#0E2A17" width={3} />
+              <Icon name="plus" size={24} color="currentColor" width={3} />
               <Pending />
             </Link>
           );

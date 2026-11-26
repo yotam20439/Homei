@@ -24,19 +24,21 @@ export default async function Home() {
       value: Number(b.monthly_price ?? 0),
       warn: !!alert,
       href: `/bills/${b.id}`,
+      cat: b.category,
+      residentId: b.resident_id ?? undefined,
     };
   });
 
   for (const room of ROOMS) {
     for (const cat of room.expected) {
       if (!active.some((b) => b.category === cat)) {
-        rows.push({ key: `missing:${cat}`, room: room.id, icon: CATEGORIES[cat].icon, name: CATEGORIES[cat].label, sub: "עוד לא נוסף · סרקו או הוסיפו ידנית", amount: "הוספה", value: 0, warn: false, missing: true, href: `/bills/new?category=${cat}` });
+        rows.push({ key: `missing:${cat}`, room: room.id, icon: CATEGORIES[cat].icon, name: CATEGORIES[cat].label, sub: "עוד לא נוסף · סרקו או הוסיפו ידנית", amount: "הוספה", value: 0, warn: false, missing: true, href: `/bills/new?category=${cat}`, cat });
       }
     }
   }
   for (const r of residents) {
     if (!active.some((b) => b.category === "cellular" && b.resident_id === r.id)) {
-      rows.push({ key: `missing:cell:${r.id}`, room: "beds", icon: "user", name: r.name, sub: "ללא קו סלולר במעקב", amount: "הוספה", value: 0, warn: false, missing: true, href: `/bills/new?category=cellular&resident=${r.id}` });
+      rows.push({ key: `missing:cell:${r.id}`, room: "beds", icon: "user", name: r.name, sub: "ללא קו סלולר במעקב", amount: "הוספה", value: 0, warn: false, missing: true, href: `/bills/new?category=cellular&resident=${r.id}`, cat: "cellular", residentId: r.id });
     }
   }
 
