@@ -46,7 +46,9 @@ export type Bill = {
   notes: string | null;
 };
 export type Charge = { bill_id: string; period: string; amount: number; months_covered: number };
-export type Resident = { id: string; name: string; color: string; user_id: string | null; sort: number };
+export type ResidentRole = "self" | "partner" | "child" | "other";
+export type Resident = { id: string; name: string; color: string; user_id: string | null; sort: number; role: ResidentRole };
+export const ROLE_LABEL: Record<ResidentRole, string> = { self: "אני", partner: "בן/בת זוג", child: "ילד/ה", other: "אחר" };
 export type Offer = { category: string; provider: string; plan: string; monthly_price: number; post_promo_price: number | null; promo_months: number | null; commitment_months: number | null; is_partner: boolean };
 
 export type Alert = { key: string; billId: string | null; kind: string; title: string; body: string };

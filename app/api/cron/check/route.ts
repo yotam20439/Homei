@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
     const [bills, charges, residents] = await Promise.all([
       admin.from("bills").select("*").eq("household_id", h.id).neq("status", "ended"),
       admin.from("bill_charges").select("bill_id, period, amount, months_covered").eq("household_id", h.id),
-      admin.from("residents").select("id, name, color, user_id, sort").eq("household_id", h.id),
+      admin.from("residents").select("id, name, color, user_id, sort, role").eq("household_id", h.id),
     ]);
     const alerts = computeAlerts((bills.data ?? []) as Bill[], (charges.data ?? []) as Charge[], (residents.data ?? []) as Resident[], (offers ?? []) as Offer[]);
     if (!alerts.length) continue;

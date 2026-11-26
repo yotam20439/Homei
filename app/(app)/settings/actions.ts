@@ -12,13 +12,27 @@ import { escapeHtml, layout, sendEmail } from "@/lib/email";
 const COLORS = ["#C9C3F0", "#FFB877", "#7CC765", "#F4B9B2", "#8FA8FF", "#F5C542", "#4FD1C5", "#E8A0D8"];
 const done = () => revalidatePath("/", "layout");
 
-export async function addResident(form: FormData) {
+const Role = z.enum(["partner", "child", "other"]);
+
+export async function addResident(_: { error?: string }, form: FormData): Promise<{ error?: string }> {
   const { m } = await requireHousehold();
-  const name = z.string().trim().min(1).max(40).parse(form.get("name"));
+  const s = z.object({ name: z.string().trim().min(1).max(40), role: Role }).safeParse({ name: form.get("name"), role: form.get("role") });
+  if (!s.success) return { error: "מה השם, ומי זה?" };
   const supabase = await createClient();
   const { count } = await supabase.from("residents").select("id", { count: "exact", head: true }).eq("household_id", m.householdId);
-  if ((count ?? 0) >= 12) return;
-  await supabase.from("residents").insert({ household_id: m.householdId, name, color: COLORS[(count ?? 0) % COLORS.length], sort: count ?? 0 });
+  if ((count ?? 0) >= 12) return { error: "אפשר עד 12 בני בית." };
+  const { error } = await supabase.from("residents").insert({ household_id: m.householdId, name: s.data.name, role: s.data.role, color: COLORS[(count ?? 0) % COLORS.length], sort: count ?? 0 });
+  if (error) return { error: "ההוספה נכשלה. נסו שוב." };
+  done();
+  return {};
+}
+
+export async function setResidentRole(form: FormData) {
+  const { m } = await requireHousehold();
+  const id = z.string().uuid().parse(form.get("id"));
+  const role = z.enum(["self", "partner", "child", "other"]).parse(form.get("role"));
+  const supabase = await createClient();
+  await supabase.from("residents").update({ role }).eq("id", id).eq("household_id", m.householdId);
   done();
 }
 

@@ -4,7 +4,7 @@ import * as THREE from "three";
 
 export type Room3D = "salon" | "kitchen" | "bath" | "beds";
 export type View3D = "all" | Room3D;
-export type Person3D = { id: string; name: string; color: string; talking: boolean; warn: boolean };
+export type Person3D = { id: string; name: string; color: string; talking: boolean; warn: boolean; kind?: "adult" | "child" };
 
 type Props = {
   view: View3D;
@@ -32,7 +32,8 @@ const NAV: Record<string, { p: [number, number][]; e: [number, number][] }> = {
   kitchen: { p: [[1.5, 6.7], [2.3, 7.4], [3.5, 7.6], [1.35, 7.9]], e: [[0, 1], [1, 2], [1, 3], [3, 0]] },
   bath: { p: [[2.0, 1.6], [2.9, 1.6], [2.5, 2.4]], e: [[0, 1], [1, 2], [2, 0]] },
 };
-const PERSON_ROOM = ["parents", "salon", "kids", "kids", "kitchen", "salon", "parents", "salon"];
+const ADULT_ROOMS = ["parents", "salon", "kitchen", "salon", "parents"];
+const CHILD_ROOMS = ["kids", "kids", "salon", "kids"];
 const CAMS: Record<View3D, { t: [number, number, number]; w: number }> = {
   all: { t: [5, 0.7, 5], w: 13.6 },
   salon: { t: [7, 0.6, 7], w: 7.2 },
@@ -341,7 +342,7 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       group: THREE.Group; hips: THREE.Group; legL: Limb; legR: Limb; armL: Limb; armR: Limb; head: THREE.Group;
       ring: THREE.Mesh; bubble: THREE.Sprite; phone: THREE.Mesh; torsoMat: THREE.MeshStandardMaterial;
       nav: { p: [number, number][]; e: [number, number][] }; at: number; next: number; wait: number;
-      heading: number; stride: number; talking: boolean; warn: boolean; phase: number; scale: number;
+      heading: number; stride: number; talking: boolean; warn: boolean; phase: number; scale: number; kind: "adult" | "child";
     };
     const persons = new Map<string, P>();
     const skin = mat("#F2C9A0");
@@ -367,10 +368,11 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       return g;
     };
     const neighbours = (nav: P["nav"], i: number) => nav.e.filter(([a, b]) => a === i || b === i).map(([a, b]) => (a === i ? b : a));
-    const makePerson = (p: Person3D, i: number): P => {
-      const roomId = PERSON_ROOM[i % PERSON_ROOM.length];
+    const makePerson = (p: Person3D, i: number, slot: number): P => {
+      const child = p.kind === "child";
+      const roomId = child ? CHILD_ROOMS[slot % CHILD_ROOMS.length] : ADULT_ROOMS[slot % ADULT_ROOMS.length];
       const nav = NAV[roomId];
-      const scale = i < 2 ? 1 : 0.78;
+      const scale = child ? 0.7 : 1;
       const group = new THREE.Group();
       const hips = new THREE.Group();
       hips.position.y = 0.5;
@@ -413,14 +415,17 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       const start = i % nav.p.length;
       group.position.set(nav.p[start][0], 0, nav.p[start][1]);
       scene.add(group);
-      return { group, hips, legL, legR, armL, armR, head, ring, bubble, phone: ph, torsoMat, nav, at: start, next: start, wait: 0.5 + Math.random() * 2, heading: Math.random() * Math.PI * 2, stride: 0, talking: p.talking, warn: p.warn, phase: Math.random() * 10, scale };
+      return { group, hips, legL, legR, armL, armR, head, ring, bubble, phone: ph, torsoMat, nav, at: start, next: start, wait: 0.5 + Math.random() * 2, heading: Math.random() * Math.PI * 2, stride: 0, talking: p.talking, warn: p.warn, phase: Math.random() * 10, scale, kind: child ? "child" : "adult" };
     };
     const setPeople = (list: Person3D[]) => {
       const keep = new Set(list.map((p) => p.id));
       for (const [id, p] of persons) if (!keep.has(id)) { scene.remove(p.group); persons.delete(id); }
+      let adults = 0, kids = 0;
       list.slice(0, 8).forEach((p, i) => {
+        const slot = p.kind === "child" ? kids++ : adults++;
         let pp = persons.get(p.id);
-        if (!pp) { pp = makePerson(p, i); persons.set(p.id, pp); }
+        if (pp && pp.kind !== (p.kind ?? "adult")) { scene.remove(pp.group); persons.delete(p.id); pp = undefined; }
+        if (!pp) { pp = makePerson(p, i, slot); persons.set(p.id, pp); }
         pp.talking = p.talking;
         pp.warn = p.warn;
         pp.phone.visible = p.talking;
@@ -468,7 +473,7 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       p.hips.rotation.y = s * 0.08 * k;
       if (p.talking) {
         // phone held to the ear
-        p.armR.rotation.set(-2.4, 0, -0.35);
+        p.armR.rotation.set(-2.1, 0, -0.6);
         p.head.rotation.z = 0.12;
         p.bubble.material.opacity = 0.75 + Math.sin(t * 4 + p.phase) * 0.25;
       } else {

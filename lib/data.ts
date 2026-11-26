@@ -8,7 +8,7 @@ export const loadHouseholdData = cache(async (householdId: string) => {
   const [bills, charges, residents, offers, dismissed] = await Promise.all([
     supabase.from("bills").select("*").eq("household_id", householdId).neq("status", "ended").order("created_at"),
     supabase.from("bill_charges").select("bill_id, period, amount, months_covered").eq("household_id", householdId),
-    supabase.from("residents").select("id, name, color, user_id, sort").eq("household_id", householdId).order("sort").order("created_at"),
+    supabase.from("residents").select("id, name, color, user_id, sort, role").eq("household_id", householdId).order("sort").order("created_at"),
     supabase.from("market_offers").select("category, provider, plan, monthly_price, post_promo_price, promo_months, commitment_months, is_partner"),
     supabase.from("alerts").select("dedupe_key").eq("household_id", householdId).not("dismissed_at", "is", null),
   ]);

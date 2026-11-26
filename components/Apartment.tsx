@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Icon from "./Icon";
+import { LogoMark } from "./Logo";
 import type { Room3D, View3D } from "./Apartment3D";
 
 const Apartment3D = dynamic(() => import("./Apartment3D"), { ssr: false });
@@ -30,7 +31,7 @@ export type Row = {
   href: string;
 };
 
-export type Person = { id: string; name: string; color: string; talking: boolean; warn: boolean };
+export type Person = { id: string; name: string; color: string; talking: boolean; warn: boolean; kind?: "adult" | "child" };
 
 type District = "all" | "house" | "salon" | "kitchen" | "bath" | "beds" | "alerts";
 
@@ -202,7 +203,7 @@ export default function Apartment({
       <header className="apt-header">
         <div className="apt-head-row">
           <div>
-            <div className="brand">{householdName}</div>
+            <div className="brand-row"><LogoMark size={22} /><span className="brand">{householdName}</span></div>
             <div className="apt-total">₪{Math.round(total).toLocaleString("en-US")}</div>
             <div className="muted small">לחודש · ₪{Math.round(total / n).toLocaleString("en-US")} לנפש</div>
           </div>

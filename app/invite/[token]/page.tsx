@@ -3,6 +3,7 @@ import { requireVerifiedUser } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sha256 } from "@/lib/device";
 import AcceptForm from "./AcceptForm";
+import { LogoLockup } from "@/components/Logo";
 
 export default async function InvitePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -23,7 +24,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
   const name = (inv.households as unknown as { name: string }).name;
   return (
     <main className="auth">
-      <div className="brand">HOMEi</div>
+      <LogoLockup size={36} />
       <h1 className="auth-title">הצטרפות ל"{name}"</h1>
       <AcceptForm token={token} residents={residents ?? []} defaultName={user.name?.split(" ")[0] ?? ""} />
     </main>
@@ -33,7 +34,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
 function Problem({ text, signOut }: { text: string; signOut?: boolean }) {
   return (
     <main className="auth">
-      <div className="brand">HOMEi</div>
+      <LogoLockup size={36} />
       <p className="alert-box">{text}</p>
       {signOut && <form action="/auth/signout" method="post"><button className="btn btn-ghost btn-block">התחברות עם חשבון אחר</button></form>}
     </main>

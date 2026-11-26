@@ -42,7 +42,7 @@ export default async function Home() {
 
   const people: Person[] = residents.map((r) => {
     const line = active.find((b) => b.category === "cellular" && b.resident_id === r.id);
-    return { id: r.id, name: r.name, color: r.color, talking: !!line, warn: !!line && alerts.some((a) => a.billId === line.id) };
+    return { id: r.id, name: r.name, color: r.color, talking: !!line, warn: !!line && alerts.some((a) => a.billId === line.id), kind: r.role === "child" ? "child" : "adult" };
   });
 
   const total = active.reduce((a, b) => a + Number(b.monthly_price ?? 0), 0);

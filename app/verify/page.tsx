@@ -3,6 +3,7 @@ import { getUser } from "@/lib/auth";
 import { safeNext } from "@/lib/device";
 import VerifyForm from "./VerifyForm";
 import { displayLogin, isUsernameAccount } from "@/lib/username";
+import { LogoLockup } from "@/components/Logo";
 
 export default async function VerifyPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
   const user = await getUser();
@@ -10,7 +11,7 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
   const next = safeNext((await searchParams).next);
   return (
     <main className="auth">
-      <div className="brand">HOMEi</div>
+      <LogoLockup size={36} />
       <h1 className="auth-title">אימות המכשיר</h1>
       {isUsernameAccount(user.email) && <p className="ok-box">משתמש מנהל: הקוד לא נשלח במייל. מצאו אותו ב-Vercel → Logs, בחיפוש "username account".</p>}
       <VerifyForm email={displayLogin(user.email)} next={next} />

@@ -25,7 +25,7 @@ export async function createHousehold(_: { error?: string }, form: FormData): Pr
 
   const names = [user.name?.split(" ")[0] || "אני", ...(s.data.residents ?? "").split(/[,\n]/).map((x) => x.trim()).filter(Boolean)].slice(0, 12);
   await supabase.from("residents").insert(
-    names.map((name, i) => ({ household_id: hid, name: name.slice(0, 40), color: COLORS[i % COLORS.length], sort: i, user_id: i === 0 ? user.id : null }))
+    names.map((name, i) => ({ household_id: hid, name: name.slice(0, 40), color: COLORS[i % COLORS.length], sort: i, user_id: i === 0 ? user.id : null, role: i === 0 ? "self" : "other" }))
   );
   redirect("/");
 }

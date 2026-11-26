@@ -1,7 +1,8 @@
+import { LogoLockup } from "@/components/Logo";
 export default function Privacy() {
   return (
     <main className="auth">
-      <div className="brand">HOMEi</div>
+      <LogoLockup size={36} />
       <h1 className="auth-title">פרטיות ואבטחה</h1>
       <p className="muted">[טיוטה: יש להשלים מדיניות פרטיות מלאה עם ייעוץ משפטי לפני השקה.]</p>
       <ul className="fine">

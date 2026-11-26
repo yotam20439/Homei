@@ -12,7 +12,7 @@
 
 ### 1. Supabase
 1. צרו פרויקט ב-[supabase.com](https://supabase.com). מומלץ לבחור אזור באירופה (למשל Frankfurt).
-2. **SQL Editor:** הדביקו והריצו לפי הסדר את `supabase/migrations/0001_init.sql`, `0002_password_auth.sql` ו-`0003_grants.sql`. זה יוצר את הטבלאות, הרשאות RLS ואת ה-bucket הפרטי `documents`.
+2. **SQL Editor:** הדביקו והריצו לפי הסדר את `supabase/migrations/0001_init.sql`, `0002_password_auth.sql`, `0003_grants.sql` ו-`0004_resident_roles.sql`. זה יוצר את הטבלאות, הרשאות RLS ואת ה-bucket הפרטי `documents`.
 3. **Authentication → Sign In / Providers → Email:** ודאו שהספק מופעל.
    - "Confirm email" לא משנה כאן: האפליקציה יוצרת את המשתמש בשרת ומאמתת את המייל בעצמה בקוד בן 6 ספרות לפני כל גישה.
    - מומלץ: Minimum password length 10, ואם זמין בתוכנית שלכם, להפעיל Leaked password protection.

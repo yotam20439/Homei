@@ -119,3 +119,36 @@ textarea.input{height:auto;min-height:80px;padding:10px 12px}
 .card .sk{background:linear-gradient(90deg,#24262A 0%,#33363B 40%,#24262A 80%);background-size:200% 100%}
 .sk-title{height:30px;width:45%}.sk-line{height:14px;width:100%}.sk-line.short{width:60%}
 @keyframes shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
+/* logo */
+.logo-lockup{display:inline-flex;align-items:center;gap:8px}
+.logo-word{font-family:"Varela Round",Rubik,system-ui,sans-serif;font-weight:400;letter-spacing:-.01em;line-height:1}
+.brand-row{display:flex;align-items:center;gap:8px}
+/* splash */
+.splash{position:fixed;inset:0;z-index:1000;background:#F6EEF6;display:flex;align-items:center;justify-content:center;transition:opacity 480ms ease,transform 480ms ease}
+.splash.leave{opacity:0;transform:scale(1.04);pointer-events:none}
+.splash-inner{display:flex;flex-direction:column;align-items:center;gap:6px}
+.splash-shake{position:relative;animation:houseShake 520ms cubic-bezier(.36,.07,.19,.97) 1180ms both}
+.splash-mark .logo-house{animation:houseIn 420ms cubic-bezier(.2,.8,.2,1) both}
+.splash-mark .logo-roof{transform-box:view-box;transform-origin:170px 200px;animation:roofDrop 760ms cubic-bezier(.55,0,.75,.2) 260ms both,roofSettle 420ms cubic-bezier(.2,.8,.2,1) 1020ms both}
+.splash-dust{position:absolute;bottom:42%;width:14px;height:14px;border-radius:50%;background:#E7D6EE;opacity:0;animation:dust 600ms ease-out 1010ms both}
+.splash-dust.l{left:4%}.splash-dust.r{right:2%;animation-name:dustR}
+.splash-word{font-family:"Varela Round",Rubik,system-ui,sans-serif;font-size:64px;color:#463A5E;line-height:1;margin-top:8px;animation:wordIn 520ms cubic-bezier(.2,.8,.2,1) 1650ms both}
+.splash-tag{font-family:Rubik,system-ui,sans-serif;font-size:17px;color:#463A5E;opacity:.85;animation:wordIn 520ms cubic-bezier(.2,.8,.2,1) 1820ms both}
+@keyframes houseIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes roofDrop{0%{opacity:0;transform:translateY(-320px)}15%{opacity:1}100%{opacity:1;transform:translateY(0)}}
+@keyframes roofSettle{0%{transform:translateY(0) scaleY(.9)}45%{transform:translateY(-14px) scaleY(1.03)}100%{transform:translateY(0) scaleY(1)}}
+@keyframes houseShake{0%,100%{transform:translateX(0)}15%{transform:translateX(-10px) rotate(-1.5deg)}35%{transform:translateX(9px) rotate(1.2deg)}55%{transform:translateX(-6px) rotate(-.8deg)}75%{transform:translateX(4px) rotate(.4deg)}90%{transform:translateX(-2px)}}
+@keyframes dust{0%{opacity:.9;transform:translate(0,0) scale(.6)}100%{opacity:0;transform:translate(-34px,-10px) scale(1.6)}}
+@keyframes dustR{0%{opacity:.9;transform:translate(0,0) scale(.6)}100%{opacity:0;transform:translate(34px,-10px) scale(1.6)}}
+@keyframes wordIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.btn-spinner{width:16px;height:16px;border-radius:50%;border:2px solid rgba(14,42,23,.25);border-top-color:#0E2A17;animation:spin .7s linear infinite;display:inline-block}
+.btn-spinner.dark{border-color:rgba(255,255,255,.2);border-top-color:#fff}
+.resident-row{animation:pageIn 260ms cubic-bezier(.2,.8,.2,1)}
+.resident-row.pending{opacity:.6}
+.role-select{width:auto;height:36px;padding:0 8px;font-size:13px}
+.seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;background:#151619;border-radius:12px;padding:4px}
+.seg-item{position:relative}
+.seg-item input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
+.seg-item span{display:flex;height:38px;align-items:center;justify-content:center;border-radius:9px;font-size:13px;color:var(--muted);transition:background 150ms ease,color 150ms ease}
+.seg-item input:checked+span{background:#2A2C30;color:#fff;font-weight:700}
+.seg-item input:focus-visible+span{outline:2px solid #4F9FA6}

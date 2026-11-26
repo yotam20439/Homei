@@ -14,7 +14,7 @@ export default function OnboardingForm({ firstName }: { firstName: string }) {
       <div className="field">
         <label className="label" htmlFor="residents">מי עוד גר בבית? (שמות, מופרדים בפסיק)</label>
         <textarea id="residents" name="residents" className="input" placeholder="יואב, נועה, איתי" maxLength={400} />
-        <span className="fine">אתם כבר ברשימה. מספר הנפשות משמש להערכת צריכת מים וחשמל, ואפשר לשנות אותו בהגדרות.</span>
+        <span className="fine">אתם כבר ברשימה. בהגדרות אפשר לסמן מי בן/בת זוג ומי ילד/ה, וכך הם יופיעו בדירה.</span>
       </div>
       {state.error && <p className="alert-box">{state.error}</p>}
       <button className="btn btn-primary btn-block" disabled={pending}>{pending ? "יוצרים…" : "יצירת משק הבית"}</button>

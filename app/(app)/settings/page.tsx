@@ -7,7 +7,8 @@ import { DEVICE_COOKIE, readDevice } from "@/lib/device";
 import { env } from "@/lib/env";
 import ConfirmButton from "@/components/ConfirmButton";
 import InviteForm from "./InviteForm";
-import { addResident, removeMember, removeResident, revokeDevice, revokeInvite, updateHousehold } from "./actions";
+import Residents from "./Residents";
+import { removeMember, revokeDevice, revokeInvite, updateHousehold } from "./actions";
 
 export default async function Settings() {
   const { user, m } = await requireHousehold();
@@ -31,23 +32,8 @@ export default async function Settings() {
 
       <section className="card" id="residents">
         <div className="between"><h2>בני הבית</h2><span className="muted small">{residents.length} נפשות</span></div>
-        <p className="fine" style={{ margin: 0 }}>מספר הנפשות משמש להערכת הצריכה הצפויה של מים וחשמל. קווי סלולר משויכים לכל אחד מהם.</p>
-        {residents.map((r, i) => (
-          <div key={r.id} className="row divider" style={{ minHeight: 52 }}>
-            <span className="avatar" style={{ background: r.color }}>{r.name[0]}</span>
-            <span className="grow">{r.name}{r.user_id === user.id ? " (את/ה)" : ""}</span>
-            {residents.length > 1 && i >= 0 && (
-              <form action={removeResident}>
-                <input type="hidden" name="id" value={r.id} />
-                <ConfirmButton className="btn btn-danger btn-sm" message={`להסיר את ${r.name} מבני הבית? קו הסלולר שלו יישאר ברשימת החשבונות בלי שיוך.`}>הסרה</ConfirmButton>
-              </form>
-            )}
-          </div>
-        ))}
-        <form action={addResident} className="row">
-          <input name="name" required maxLength={40} className="input" placeholder="שם" aria-label="שם בן הבית" />
-          <button className="btn btn-ghost">הוספה</button>
-        </form>
+        <p className="fine" style={{ margin: 0 }}>מספר הנפשות משמש להערכת הצריכה הצפויה של מים וחשמל. ילדים מופיעים בדירה כדמויות קטנות בחדר הילדים.</p>
+        <Residents residents={residents.map((r) => ({ id: r.id, name: r.name, color: r.color, role: r.role ?? "other", isMe: r.user_id === user.id }))} />
       </section>
 
       <section className="card">
