@@ -6,8 +6,8 @@ type Mail = { to: string; subject: string; html: string; text: string };
 export async function sendEmail(mail: Mail): Promise<void> {
   const key = process.env.RESEND_API_KEY;
   if (!key) {
-    if (process.env.NODE_ENV === "production") throw new Error("RESEND_API_KEY is not configured");
-    console.info(`[dev email] to=${mail.to} subject=${mail.subject}\n${mail.text}`);
+    if (process.env.NODE_ENV === "production" && process.env.EMAIL_LOG_FALLBACK !== "1") throw new Error("RESEND_API_KEY is not configured");
+    console.info(`[email not sent, no RESEND_API_KEY] to=${mail.to} subject=${mail.subject}\n${mail.text}`);
     return;
   }
   const res = await fetch("https://api.resend.com/emails", {
