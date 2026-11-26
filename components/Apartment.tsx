@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon";
 import { APARTMENT_SVG } from "./apartmentSvg";
 
@@ -27,12 +27,12 @@ const SLOTS: [number, number][] = [
   [300, 120], [250, 215],
 ];
 const CAM: Record<Exclude<District, "all">, { c: [number, number]; s: number; title: string }> = {
-  house: { c: [195, 140], s: 1.15, title: "כל הבית" },
-  salon: { c: [195, 176], s: 1.9, title: "סלון" },
-  kitchen: { c: [87, 140], s: 2.1, title: "מטבח" },
-  bath: { c: [204, 82], s: 2.2, title: "אמבטיה" },
-  beds: { c: [222, 116], s: 1.6, title: "חדרי שינה · סלולר לכל נפש" },
-  alerts: { c: [195, 140], s: 1.15, title: "דורש טיפול" },
+  house: { c: [195, 135], s: 1.15, title: "כל הבית" },
+  salon: { c: [200, 182], s: 1.9, title: "סלון" },
+  kitchen: { c: [86, 146], s: 2.1, title: "מטבח" },
+  bath: { c: [200, 78], s: 2.6, title: "אמבטיה" },
+  beds: { c: [218, 120], s: 1.85, title: "חדרי שינה · סלולר לכל נפש" },
+  alerts: { c: [195, 135], s: 1.15, title: "דורש טיפול" },
 };
 const CHIPS: { id: District; label: string; icon: string; color: string }[] = [
   { id: "all", label: "כל הבית", icon: "home", color: "#8FA8FF" },
@@ -42,8 +42,20 @@ const CHIPS: { id: District; label: string; icon: string; color: string }[] = [
   { id: "beds", label: "חדרי שינה", icon: "bed", color: "#C9A2FF" },
   { id: "alerts", label: "דורש טיפול", icon: "alert", color: "#FF6A2C" },
 ];
-const CAM_TOP = 236;
 const DESIGN_W = 390;
+const HEADER_BOTTOM = 210; // below the room chips
+const SVG_INNER = APARTMENT_SVG.replace(/^<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");
+const HOTSPOTS: { id: District; label: string; pts: string }[] = [
+  { id: "salon", label: "סלון", pts: "195,136 303,190 195,244 87,190" },
+  { id: "kitchen", label: "מטבח", pts: "87,118 159,154 87,190 15,154" },
+  { id: "bath", label: "אמבטיה", pts: "195,64 267,100 213,127 141,91" },
+  { id: "beds", label: "חדר ילדים", pts: "141,91 213,127 159,154 87,118" },
+  { id: "beds", label: "חדר הורים", pts: "267,100 375,154 303,190 195,136" },
+];
+const WARN_POS: Partial<Record<Row["room"], [number, number]>> = { salon: [197, 112], bath: [246, 68], kitchen: [87, 122] };
+
+type Box = [number, number, number, number];
+const ease = (t: number) => 1 - Math.pow(1 - t, 3);
 
 export default function Apartment({
   householdName,
@@ -78,55 +90,84 @@ export default function Apartment({
     if (d === "house") return rows;
     return rows.filter((r) => r.room === d);
   }, [d, rows, warnRows]);
-
   const sheetTotal = sheetRows.filter((r) => !r.missing).reduce((a, r) => a + r.value, 0);
+  const isAll = d === "all";
 
-  let cam = "translate(0px, 0px) scale(1)";
-  if (d !== "all") {
+  // Camera = the SVG viewBox. Animating it keeps the vector drawing sharp at any zoom.
+  const target: Box = useMemo(() => {
+    const H = fit.h;
+    if (d === "all") {
+      const visibleTop = HEADER_BOTTOM, visibleBottom = H - 170;
+      const s = Math.min(1.08, (visibleBottom - visibleTop) / 290);
+      const cy = (visibleTop + visibleBottom) / 2;
+      return [195 - 195 / s, 135 - cy / s, DESIGN_W / s, H / s];
+    }
     const { c, s } = CAM[d];
     const sheetH = Math.min(64 + sheetRows.length * 50, 500);
-    const sheetTop = fit.h - 94 - sheetH;
-    const ty = Math.max(240, 210 + (sheetTop - 210) / 2);
-    cam = `translate(${195 - s * c[0]}px, ${ty - CAM_TOP - s * c[1]}px) scale(${s})`;
-  }
-  const isAll = d === "all";
+    const ty = HEADER_BOTTOM + (H - 94 - sheetH - HEADER_BOTTOM) / 2;
+    return [c[0] - 195 / s, c[1] - ty / s, DESIGN_W / s, H / s];
+  }, [d, fit.h, sheetRows.length]);
+
+  const [box, setBox] = useState<Box>(target);
+  const boxRef = useRef<Box>(target);
+  useEffect(() => {
+    const from = boxRef.current;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) { boxRef.current = target; setBox(target); return; }
+    const t0 = performance.now(), dur = 520;
+    let raf = 0;
+    const step = (now: number) => {
+      const k = ease(Math.min(1, (now - t0) / dur));
+      const b = from.map((v, i) => v + (target[i] - v) * k) as Box;
+      boxRef.current = b;
+      setBox(b);
+      if (k < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [target]);
 
   return (
     <div className="apt" dir="rtl" style={{ zoom: fit.zoom, height: fit.h }}>
-      <div className="apt-cam" style={{ transform: cam }}>
-        <div dangerouslySetInnerHTML={{ __html: APARTMENT_SVG }} />
+      <svg className="apt-svg" viewBox={box.join(" ")} preserveAspectRatio="xMidYMin slice" aria-hidden={!isAll}>
+        <g dangerouslySetInnerHTML={{ __html: SVG_INNER }} />
         {people.slice(0, SLOTS.length).map((p, i) => {
           const [x, y] = SLOTS[i];
           return (
-            <div key={p.id} className="person" style={{ left: x - 10, top: y - 30 }} title={p.name}>
-              {p.warn && <span className="person-ring" />}
-              <span className={i % 2 ? "sway2" : "sway"} style={{ position: "absolute", inset: 0 }}>
-                <span className="person-head" />
-                <span className="person-body" style={{ background: p.color }} />
+            <g key={p.id} transform={`translate(${x} ${y - 2})`}>
+              <title>{p.name}</title>
+              {p.warn && <ellipse className="ring" cx={0} cy={0} rx={9} ry={4.5} fill="none" stroke="#FF6A2C" strokeWidth={2} />}
+              <g className={i % 2 ? "sway2" : "sway"}>
+                <rect x={-6} y={-17} width={12} height={15} rx={5} fill={p.color} stroke="#1E2433" strokeWidth={1.5} />
+                <circle cx={0} cy={-21} r={5} fill="#F2C9A0" stroke="#1E2433" strokeWidth={1.5} />
                 {p.talking && (
                   <>
-                    <span className="person-phone" />
-                    <span className="person-bubble"><i className="d1" /><i className="d2" /><i className="d3" /></span>
+                    <rect x={3.5} y={-25} width={3.5} height={6.5} rx={1} fill="#1E2433" />
+                    <rect x={4} y={-37} width={15} height={8} rx={4} fill="#FFFFFF" />
+                    <circle className="d1" cx={8} cy={-33} r={1} fill="#1E2433" />
+                    <circle className="d2" cx={11.5} cy={-33} r={1} fill="#1E2433" />
+                    <circle className="d3" cx={15} cy={-33} r={1} fill="#1E2433" />
                   </>
                 )}
-              </span>
-            </div>
+              </g>
+            </g>
           );
         })}
-        {roomWarn("salon") && <span className="room-warn" style={{ left: 190, top: 115 }}>!</span>}
-        {roomWarn("bath") && <span className="room-warn" style={{ left: 240, top: 62 }}>!</span>}
-        {roomWarn("kitchen") && <span className="room-warn" style={{ left: 80, top: 120 }}>!</span>}
-      </div>
-
-      {isAll && (
-        <>
-          <button className="hotspot" aria-label="סלון" style={{ top: 396, left: 150, width: 96, height: 60 }} onClick={() => setD("salon")} />
-          <button className="hotspot" aria-label="מטבח" style={{ top: 360, left: 52, width: 72, height: 56 }} onClick={() => setD("kitchen")} />
-          <button className="hotspot" aria-label="אמבטיה" style={{ top: 300, left: 172, width: 70, height: 46 }} onClick={() => setD("bath")} />
-          <button className="hotspot" aria-label="חדר ילדים" style={{ top: 330, left: 118, width: 64, height: 50 }} onClick={() => setD("beds")} />
-          <button className="hotspot" aria-label="חדר הורים" style={{ top: 350, left: 248, width: 80, height: 56 }} onClick={() => setD("beds")} />
-        </>
-      )}
+        {(Object.keys(WARN_POS) as Row["room"][]).filter(roomWarn).map((room) => {
+          const [x, y] = WARN_POS[room]!;
+          return (
+            <g key={room} transform={`translate(${x} ${y})`}>
+              <circle r={4} fill="#FF6A2C"><animate attributeName="r" values="4;13" dur="1.6s" repeatCount="indefinite" /><animate attributeName="opacity" values=".8;0" dur="1.6s" repeatCount="indefinite" /></circle>
+              <circle r={5.5} fill="#FF6A2C" stroke="#FFFFFF" strokeWidth={1.2} />
+              <text y={2.6} textAnchor="middle" fontSize={7.5} fontWeight={800} fill="#FFFFFF">!</text>
+            </g>
+          );
+        })}
+        {isAll && HOTSPOTS.map((h) => (
+          <polygon key={h.label} points={h.pts} className="hotspot-poly" role="button" tabIndex={0} aria-label={h.label}
+            onClick={() => setD(h.id)} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setD(h.id)} />
+        ))}
+      </svg>
 
       <header className="apt-header">
         <div className="apt-head-row">

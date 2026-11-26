@@ -93,3 +93,8 @@ textarea.input{height:auto;min-height:80px;padding:10px 12px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 .missing-field{border-color:#E08A55;background:#22170F}
 .back-link{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:14px}
+.apt-svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.hotspot-poly{fill:transparent;cursor:pointer;outline:none}
+.hotspot-poly:focus-visible{fill:rgba(255,255,255,.12)}
+.apt-svg .sway,.apt-svg .sway2,.apt-svg .ring{transform-box:fill-box;transform-origin:center}
+.apt-svg .ring{animation:pr 1.6s ease-out infinite}
