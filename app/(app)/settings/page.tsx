@@ -15,11 +15,13 @@ export default async function Settings() {
   const { residents } = await loadHouseholdData(m.householdId);
   const supabase = await createClient();
   const [{ data: members }, { data: invites }] = await Promise.all([
-    supabase.from("household_users").select("user_id, role, profiles(email, full_name)").eq("household_id", m.householdId),
+    supabase.from("household_users").select("user_id, role").eq("household_id", m.householdId),
     isOwner
       ? supabase.from("invitations").select("id, email, expires_at").eq("household_id", m.householdId).is("accepted_at", null).gt("expires_at", new Date().toISOString())
       : Promise.resolve({ data: [] as { id: string; email: string; expires_at: string }[] }),
   ]);
+  const ids = (members ?? []).map((x) => x.user_id);
+  const { data: profiles } = ids.length ? await supabase.from("profiles").select("id, email, full_name").in("id", ids) : { data: [] as { id: string; email: string; full_name: string | null }[] };
   const currentDevice = await readDevice(env.deviceSecret(), (await cookies()).get(DEVICE_COOKIE)?.value, user.id);
   const { data: devices } = await createAdminClient().from("trusted_devices").select("id, user_agent, last_seen_at").eq("user_id", user.id).is("revoked_at", null).order("last_seen_at", { ascending: false });
 
@@ -51,7 +53,7 @@ export default async function Settings() {
       <section className="card">
         <h2>משתמשים עם גישה</h2>
         {(members ?? []).map((mm) => {
-          const p = mm.profiles as unknown as { email: string; full_name: string | null } | null;
+          const p = (profiles ?? []).find((x) => x.id === mm.user_id) ?? null;
           return (
             <div key={mm.user_id} className="row divider" style={{ minHeight: 52 }}>
               <span className="grow col"><span>{p?.full_name ?? p?.email}</span><span className="small muted" dir="ltr" style={{ textAlign: "right" }}>{p?.email}</span></span>

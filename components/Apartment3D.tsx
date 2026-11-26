@@ -18,18 +18,19 @@ type Props = {
 
 // ---------- Layout (world units ≈ metres; x → screen right, z → screen left) ----------
 const ROOMS: { id: string; pick: Room3D; x: [number, number]; z: [number, number]; floor: string; label: string }[] = [
-  { id: "bath", pick: "bath", x: [0, 4], z: [0, 3], floor: "#CFE5EC", label: "אמבטיה" },
-  { id: "kids", pick: "beds", x: [0, 4], z: [3, 6], floor: "#F7DCCF", label: "חדר ילדים" },
-  { id: "kitchen", pick: "kitchen", x: [0, 4], z: [6, 10], floor: "#EFE8D6", label: "מטבח" },
-  { id: "parents", pick: "beds", x: [4, 10], z: [0, 4], floor: "#E6D8BF", label: "חדר הורים" },
-  { id: "salon", pick: "salon", x: [4, 10], z: [4, 10], floor: "#EADFC8", label: "סלון" },
+  { id: "bath", pick: "bath", x: [0, 4], z: [0, 3], floor: "#CFE5EC", label: "חשבון מים" },
+  { id: "kids", pick: "beds", x: [0, 4], z: [3, 6], floor: "#F7DCCF", label: "סלולר · ילדים" },
+  { id: "kitchen", pick: "kitchen", x: [0, 4], z: [6, 10], floor: "#EFE8D6", label: "חשמל וגז" },
+  { id: "parents", pick: "beds", x: [4, 10], z: [0, 4], floor: "#E6D8BF", label: "סלולר · הורים" },
+  { id: "salon", pick: "salon", x: [4, 10], z: [4, 10], floor: "#EADFC8", label: "טלוויזיה, אינטרנט וטלפון" },
 ];
-const SPOTS: Record<string, [number, number][]> = {
-  parents: [[7.6, 2.9], [8.3, 2.3], [6.1, 2.9], [7.0, 3.3]],
-  salon: [[7.2, 6.0], [8.6, 7.4], [5.4, 6.4], [7.6, 8.2], [5.2, 8.4]],
-  kids: [[2.0, 4.6], [1.6, 5.4], [2.8, 4.3], [2.4, 5.3]],
-  kitchen: [[1.6, 7.0], [2.4, 9.4], [1.3, 9.2], [3.2, 8.0]],
-  bath: [[2.0, 1.7], [2.7, 2.0]],
+// Walkable waypoints per room, chosen in open floor; edges are straight paths that avoid furniture.
+const NAV: Record<string, { p: [number, number][]; e: [number, number][] }> = {
+  salon: { p: [[5.3, 5.6], [8.9, 5.8], [8.9, 8.1], [5.2, 8.1], [7.2, 5.7]], e: [[0, 4], [4, 1], [1, 2], [2, 3], [3, 0]] },
+  parents: { p: [[8.0, 1.2], [8.2, 3.3], [5.6, 3.2], [9.3, 2.8], [6.9, 3.3]], e: [[0, 1], [1, 4], [4, 2], [1, 3], [3, 0]] },
+  kids: { p: [[1.8, 3.6], [2.4, 4.6], [3.4, 4.6], [1.7, 5.5]], e: [[0, 1], [1, 2], [1, 3], [3, 0]] },
+  kitchen: { p: [[1.5, 6.7], [2.3, 7.4], [3.5, 7.6], [1.35, 7.9]], e: [[0, 1], [1, 2], [1, 3], [3, 0]] },
+  bath: { p: [[2.0, 1.6], [2.9, 1.6], [2.5, 2.4]], e: [[0, 1], [1, 2], [2, 0]] },
 };
 const PERSON_ROOM = ["parents", "salon", "kids", "kids", "kitchen", "salon", "parents", "salon"];
 const CAMS: Record<View3D, { t: [number, number, number]; w: number }> = {
@@ -334,38 +335,85 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       return l;
     });
 
-    // ---------- People ----------
-    type P = { group: THREE.Group; body: THREE.Group; ring: THREE.Mesh; bubble: THREE.Sprite; phone: THREE.Mesh; spots: [number, number][]; target: THREE.Vector3; wait: number; talking: boolean; warn: boolean; phase: number };
+    // ---------- People: simple low-poly figures with a walk cycle ----------
+    type Limb = THREE.Group;
+    type P = {
+      group: THREE.Group; hips: THREE.Group; legL: Limb; legR: Limb; armL: Limb; armR: Limb; head: THREE.Group;
+      ring: THREE.Mesh; bubble: THREE.Sprite; phone: THREE.Mesh; torsoMat: THREE.MeshStandardMaterial;
+      nav: { p: [number, number][]; e: [number, number][] }; at: number; next: number; wait: number;
+      heading: number; stride: number; talking: boolean; warn: boolean; phase: number; scale: number;
+    };
     const persons = new Map<string, P>();
     const skin = mat("#F2C9A0");
+    const pants = [mat("#3B4252"), mat("#2F4F86"), mat("#5C4B3B"), mat("#4A5A3C")];
+    const shoes = mat("#1E2433");
     const ringMat = new THREE.MeshBasicMaterial({ color: "#FF6A2C", transparent: true, opacity: 0.9, depthWrite: false });
+    const capsule = (r: number, len: number, m: THREE.Material) => {
+      const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 4, 10), m);
+      mesh.castShadow = true;
+      return mesh;
+    };
+    const limb = (r: number, len: number, m: THREE.Material, foot?: THREE.Material) => {
+      const g = new THREE.Group();
+      const c = capsule(r, len, m);
+      c.position.y = -(len / 2 + r * 0.6);
+      g.add(c);
+      if (foot) {
+        const f = new THREE.Mesh(new THREE.BoxGeometry(r * 2.2, r * 1.2, r * 3.4), foot);
+        f.position.set(0, -(len + r * 1.4), r * 0.7);
+        f.castShadow = true;
+        g.add(f);
+      }
+      return g;
+    };
+    const neighbours = (nav: P["nav"], i: number) => nav.e.filter(([a, b]) => a === i || b === i).map(([a, b]) => (a === i ? b : a));
     const makePerson = (p: Person3D, i: number): P => {
       const roomId = PERSON_ROOM[i % PERSON_ROOM.length];
-      const spots = SPOTS[roomId];
+      const nav = NAV[roomId];
+      const scale = i < 2 ? 1 : 0.78;
       const group = new THREE.Group();
-      const body = new THREE.Group();
-      const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.42, 6, 14), mat(p.color));
-      torso.position.y = 0.42;
-      torso.castShadow = true;
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 18, 18), skin);
-      head.position.y = 0.88;
-      head.castShadow = true;
-      const hair = new THREE.Mesh(new THREE.SphereGeometry(0.155, 18, 18, 0, Math.PI * 2, 0, Math.PI / 2), mat(i % 3 === 0 ? "#3B2A20" : i % 3 === 1 ? "#1E2433" : "#8C5A35"));
-      hair.position.y = 0.9;
-      const ph = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.13, 0.08), mat("#1E2433"));
-      ph.position.set(0.12, 0.88, 0.1);
-      body.add(torso, head, hair, ph);
-      const ring = new THREE.Mesh(new THREE.RingGeometry(0.24, 0.32, 32), ringMat);
+      const hips = new THREE.Group();
+      hips.position.y = 0.5;
+      const torsoMat = mat(p.color).clone();
+      const torso = capsule(0.15, 0.34, torsoMat);
+      torso.position.y = 0.3;
+      const legL = limb(0.065, 0.34, pants[i % pants.length], shoes);
+      const legR = limb(0.065, 0.34, pants[i % pants.length], shoes);
+      legL.position.set(-0.08, 0.02, 0);
+      legR.position.set(0.08, 0.02, 0);
+      const armL = limb(0.05, 0.3, torsoMat);
+      const armR = limb(0.05, 0.3, torsoMat);
+      armL.position.set(-0.2, 0.52, 0);
+      armR.position.set(0.2, 0.52, 0);
+      const handR = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 10), skin);
+      handR.position.y = -0.4;
+      armR.add(handR);
+      const handL = handR.clone();
+      armL.add(handL);
+      const ph = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.08), mat("#1E2433"));
+      ph.position.set(0.02, -0.42, 0.03);
+      armR.add(ph);
+      const head = new THREE.Group();
+      head.position.y = 0.72;
+      const skull = new THREE.Mesh(new THREE.SphereGeometry(0.14, 18, 18), skin);
+      skull.castShadow = true;
+      const hair = new THREE.Mesh(new THREE.SphereGeometry(0.147, 18, 18, 0, Math.PI * 2, 0, Math.PI / 1.9), mat(i % 3 === 0 ? "#3B2A20" : i % 3 === 1 ? "#1E2433" : "#8C5A35"));
+      hair.position.y = 0.015;
+      hair.rotation.x = -0.25;
+      head.add(skull, hair);
+      hips.add(torso, legL, legR, armL, armR, head);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.26, 0.34, 32), ringMat);
       ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.02;
+      ring.position.y = 0.015;
       const bubble = textSprite("•••", { size: 40, color: "#1E2433", bg: "#FFFFFF", pad: 12, radius: 26 });
-      bubble.position.set(0.25, 1.32, 0);
-      bubble.scale.multiplyScalar(0.7);
-      group.add(body, ring, bubble);
-      const [sx, sz] = spots[i % spots.length];
-      group.position.set(sx, 0, sz);
+      bubble.position.set(0.28, 1.45, 0);
+      bubble.scale.multiplyScalar(0.65);
+      group.add(hips, ring, bubble);
+      group.scale.setScalar(scale);
+      const start = i % nav.p.length;
+      group.position.set(nav.p[start][0], 0, nav.p[start][1]);
       scene.add(group);
-      return { group, body, ring, bubble, phone: ph, spots, target: new THREE.Vector3(sx, 0, sz), wait: 1 + Math.random() * 2, talking: p.talking, warn: p.warn, phase: Math.random() * 10 };
+      return { group, hips, legL, legR, armL, armR, head, ring, bubble, phone: ph, torsoMat, nav, at: start, next: start, wait: 0.5 + Math.random() * 2, heading: Math.random() * Math.PI * 2, stride: 0, talking: p.talking, warn: p.warn, phase: Math.random() * 10, scale };
     };
     const setPeople = (list: Person3D[]) => {
       const keep = new Set(list.map((p) => p.id));
@@ -378,8 +426,63 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
         pp.phone.visible = p.talking;
         pp.bubble.visible = p.talking;
         pp.ring.visible = p.warn;
-        (pp.body.children[0] as THREE.Mesh).material = mat(p.color);
+        pp.torsoMat.color.set(p.color);
       });
+    };
+    const angleLerp = (a: number, b: number, k: number) => {
+      let d = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
+      if (d < -Math.PI) d += Math.PI * 2;
+      return a + d * k;
+    };
+    const updatePerson = (p: P, dt: number, t: number) => {
+      const pos = p.group.position;
+      const [tx, tz] = p.nav.p[p.next];
+      const dx = tx - pos.x, dz = tz - pos.z;
+      const dist = Math.hypot(dx, dz);
+      const walking = p.next !== p.at && dist > 0.02;
+      const speed = 0.7 * p.scale;
+      if (walking) {
+        const step = Math.min(dist, speed * dt);
+        pos.x += (dx / dist) * step;
+        pos.z += (dz / dist) * step;
+        p.heading = angleLerp(p.heading, Math.atan2(dx, dz), Math.min(1, dt * 8));
+        p.stride += step / (0.26 * p.scale);
+      } else {
+        if (p.next !== p.at) { p.at = p.next; p.wait = (p.talking ? 3.5 : 1.5) + Math.random() * 3; }
+        p.wait -= dt;
+        if (p.wait <= 0) {
+          const opts = neighbours(p.nav, p.at);
+          p.next = opts[Math.floor(Math.random() * opts.length)] ?? p.at;
+        }
+      }
+      p.group.rotation.y = p.heading;
+      // walk cycle blends to idle
+      const amp = walking ? 1 : 0;
+      const k = THREE.MathUtils.damp(p.legL.userData.amp ?? 0, amp, 10, dt);
+      p.legL.userData.amp = k;
+      const s = Math.sin(p.stride * Math.PI);
+      p.legL.rotation.x = s * 0.55 * k;
+      p.legR.rotation.x = -s * 0.55 * k;
+      p.armL.rotation.x = -s * 0.45 * k;
+      p.hips.position.y = 0.5 + Math.abs(Math.cos(p.stride * Math.PI)) * 0.025 * k;
+      p.hips.rotation.y = s * 0.08 * k;
+      if (p.talking) {
+        // phone held to the ear
+        p.armR.rotation.set(-2.4, 0, -0.35);
+        p.head.rotation.z = 0.12;
+        p.bubble.material.opacity = 0.75 + Math.sin(t * 4 + p.phase) * 0.25;
+      } else {
+        p.armR.rotation.set(s * 0.45 * k, 0, 0);
+        p.head.rotation.z = 0;
+      }
+      p.head.rotation.y = walking ? 0 : Math.sin(t * 0.6 + p.phase) * 0.35;
+      // breathing when idle
+      p.hips.scale.y = 1 + (1 - k) * Math.sin(t * 2 + p.phase) * 0.012;
+      if (p.ring.visible) {
+        const r = (t * 0.8 + p.phase) % 1;
+        p.ring.scale.setScalar(0.8 + r * 0.9);
+        ringMat.opacity = 0.9 * (1 - r);
+      }
     };
 
     // ---------- Warning markers ----------
@@ -400,9 +503,13 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
     const from = { t: cam.t.clone(), w: cam.w, fy: cam.fy };
     const to = { t: cam.t.clone(), w: cam.w, fy: cam.fy };
     let tween = 1;
+    // User zoom/pan on top of the preset camera (mouse wheel, pinch, drag).
+    const user = { zoom: 1, panX: 0, panY: 0 };
+    const userTo = { zoom: 1, panX: 0, panY: 0 };
+    const ZMIN = 0.35, ZMAX = 1.5;
     const applyCamera = () => {
       const aspect = size.w / size.h;
-      const halfW = cam.w / 2, halfH = halfW / aspect;
+      const halfW = (cam.w * user.zoom) / 2, halfH = halfW / aspect;
       camera.left = -halfW; camera.right = halfW; camera.top = halfH; camera.bottom = -halfH;
       camera.position.copy(cam.t).addScaledVector(DIR, 40);
       camera.lookAt(cam.t);
@@ -410,12 +517,15 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
       const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
       const shift = (cam.fy - 0.5) * 2 * halfH;
       camera.position.addScaledVector(up, shift);
+      const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+      camera.position.addScaledVector(right, user.panX).addScaledVector(up, user.panY);
       camera.updateProjectionMatrix();
     };
     const setView = (v: View3D, focusPx: number) => {
       from.t.copy(cam.t); from.w = cam.w; from.fy = cam.fy;
       to.t.set(...CAMS[v].t); to.w = CAMS[v].w; to.fy = Math.min(0.8, Math.max(0.2, focusPx / size.h));
       tween = reduce ? 1 : 0;
+      userTo.zoom = 1; userTo.panX = 0; userTo.panY = 0;
       if (reduce) { cam.t.copy(to.t); cam.w = to.w; cam.fy = to.fy; }
     };
 
@@ -435,26 +545,98 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
     // ---------- Picking ----------
     const ray = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
-    const hit = (e: PointerEvent) => {
+    const hit = (e: { clientX: number; clientY: number }) => {
       const r = renderer.domElement.getBoundingClientRect();
       ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
       ray.setFromCamera(ndc, camera);
       return ray.intersectObjects(floors, false)[0]?.object.userData.pick as Room3D | undefined;
     };
-    let down: { x: number; y: number } | null = null;
-    const onDown = (e: PointerEvent) => (down = { x: e.clientX, y: e.clientY });
-    const onUp = (e: PointerEvent) => {
-      if (!down || !api.current?.pickable) return;
-      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) return;
-      const room = hit(e);
-      if (room) onPickRef.current(room);
+    // Gestures: tap = pick a room (full view), drag = pan, wheel / two-finger pinch = zoom.
+    const pts = new Map<number, { x: number; y: number }>();
+    let down: { x: number; y: number; moved: boolean } | null = null;
+    let pinch: { d: number; zoom: number; mx: number; my: number; panX: number; panY: number } | null = null;
+    const worldPerPx = () => (cam.w * userTo.zoom) / size.w;
+    const clampPan = () => {
+      const lim = cam.w * 0.55;
+      userTo.panX = THREE.MathUtils.clamp(userTo.panX, -lim, lim);
+      userTo.panY = THREE.MathUtils.clamp(userTo.panY, -lim, lim);
+    };
+    const zoomAt = (factor: number, cx: number, cy: number) => {
+      const r = renderer.domElement.getBoundingClientRect();
+      const nx = (cx - r.left) / r.width - 0.5, ny = (cy - r.top) / r.height - 0.5;
+      const before = userTo.zoom;
+      const after = THREE.MathUtils.clamp(before * factor, ZMIN, ZMAX);
+      const viewW = cam.w, viewH = cam.w * (size.h / size.w);
+      // keep the point under the cursor fixed
+      userTo.panX += nx * viewW * (before - after);
+      userTo.panY -= ny * viewH * (before - after);
+      userTo.zoom = after;
+      clampPan();
+    };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      zoomAt(Math.exp(delta * 0.0016), e.clientX, e.clientY);
+    };
+    const onDown = (e: PointerEvent) => {
+      renderer.domElement.setPointerCapture(e.pointerId);
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size === 1) down = { x: e.clientX, y: e.clientY, moved: false };
+      if (pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), zoom: userTo.zoom, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, panX: userTo.panX, panY: userTo.panY };
+        if (down) down.moved = true;
+      }
     };
     const onMove = (e: PointerEvent) => {
-      renderer.domElement.style.cursor = api.current?.pickable && hit(e) ? "pointer" : "default";
+      const prev = pts.get(e.pointerId);
+      if (!prev) {
+        renderer.domElement.style.cursor = api.current?.pickable && hit(e) ? "pointer" : "grab";
+        return;
+      }
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pts.size >= 2) {
+        const [a, b] = [...pts.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        userTo.zoom = pinch.zoom;
+        userTo.panX = pinch.panX - (mx - pinch.mx) * worldPerPx();
+        userTo.panY = pinch.panY + (my - pinch.my) * worldPerPx();
+        zoomAt(pinch.d / Math.max(20, d), mx, my);
+        return;
+      }
+      if (down) {
+        if (!down.moved && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) down.moved = true;
+        if (down.moved) {
+          const wpp = worldPerPx();
+          userTo.panX -= (e.clientX - prev.x) * wpp;
+          userTo.panY += (e.clientY - prev.y) * wpp;
+          clampPan();
+          renderer.domElement.style.cursor = "grabbing";
+        }
+      }
     };
-    renderer.domElement.addEventListener("pointerdown", onDown);
-    renderer.domElement.addEventListener("pointerup", onUp);
-    renderer.domElement.addEventListener("pointermove", onMove);
+    const onUp = (e: PointerEvent) => {
+      pts.delete(e.pointerId);
+      if (pts.size < 2) pinch = null;
+      if (pts.size === 0 && down) {
+        if (!down.moved && api.current?.pickable) {
+          const room = hit(e);
+          if (room) onPickRef.current(room);
+        }
+        down = null;
+        renderer.domElement.style.cursor = "grab";
+      }
+    };
+    const onDbl = () => { userTo.zoom = 1; userTo.panX = 0; userTo.panY = 0; };
+    const cv = renderer.domElement;
+    cv.style.touchAction = "none";
+    cv.addEventListener("wheel", onWheel, { passive: false });
+    cv.addEventListener("pointerdown", onDown);
+    cv.addEventListener("pointermove", onMove);
+    cv.addEventListener("pointerup", onUp);
+    cv.addEventListener("pointercancel", onUp);
+    cv.addEventListener("dblclick", onDbl);
 
     // ---------- Loop ----------
     const timer = new THREE.Timer();
@@ -474,36 +656,14 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
         cam.w = from.w + (to.w - from.w) * k;
         cam.fy = from.fy + (to.fy - from.fy) * k;
       }
+      const kz = reduce ? 1 : 1 - Math.exp(-dt * 14);
+      user.zoom += (userTo.zoom - user.zoom) * kz;
+      user.panX += (userTo.panX - user.panX) * kz;
+      user.panY += (userTo.panY - user.panY) * kz;
       applyCamera();
 
       if (!reduce) {
-        for (const p of persons.values()) {
-          const pos = p.group.position;
-          const toT = p.target.clone().sub(pos);
-          const dist = toT.length();
-          if (dist > 0.03) {
-            const speed = 0.55;
-            pos.addScaledVector(toT.normalize(), Math.min(dist, speed * dt));
-            p.group.rotation.y = Math.atan2(toT.x, toT.z);
-            p.body.position.y = Math.abs(Math.sin(t * 9 + p.phase)) * 0.05;
-            p.body.rotation.z = Math.sin(t * 9 + p.phase) * 0.05;
-          } else {
-            p.body.position.y = Math.sin(t * 2 + p.phase) * 0.012;
-            p.body.rotation.z = 0;
-            p.wait -= dt;
-            if (p.wait <= 0) {
-              const [nx, nz] = p.spots[Math.floor(Math.random() * p.spots.length)];
-              p.target.set(nx + (Math.random() - 0.5) * 0.3, 0, nz + (Math.random() - 0.5) * 0.3);
-              p.wait = (p.talking ? 4 : 2) + Math.random() * 3;
-            }
-          }
-          if (p.bubble.visible) p.bubble.material.opacity = 0.75 + Math.sin(t * 4 + p.phase) * 0.25;
-          if (p.ring.visible) {
-            const k = (t * 0.8 + p.phase) % 1;
-            p.ring.scale.setScalar(0.8 + k * 0.9);
-            ringMat.opacity = 0.9 * (1 - k);
-          }
-        }
+        for (const p of persons.values()) updatePerson(p, dt, t);
         for (const d of drops) {
           d.userData.t = (d.userData.t + dt * 1.3) % 1;
           const k = d.userData.t;
@@ -546,9 +706,12 @@ export default function Apartment3D({ view, people, warnRooms, focusY, onPick, o
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
-      renderer.domElement.removeEventListener("pointerdown", onDown);
-      renderer.domElement.removeEventListener("pointerup", onUp);
-      renderer.domElement.removeEventListener("pointermove", onMove);
+      cv.removeEventListener("wheel", onWheel);
+      cv.removeEventListener("pointerdown", onDown);
+      cv.removeEventListener("pointermove", onMove);
+      cv.removeEventListener("pointerup", onUp);
+      cv.removeEventListener("pointercancel", onUp);
+      cv.removeEventListener("dblclick", onDbl);
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
         m.geometry?.dispose?.();

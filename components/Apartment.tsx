@@ -41,18 +41,18 @@ const SLOTS: [number, number][] = [
 ];
 const CAM: Record<Exclude<District, "all">, { c: [number, number]; s: number; title: string }> = {
   house: { c: [195, 135], s: 1.15, title: "כל הבית" },
-  salon: { c: [200, 182], s: 1.9, title: "סלון" },
-  kitchen: { c: [86, 146], s: 2.1, title: "מטבח" },
-  bath: { c: [200, 78], s: 2.6, title: "אמבטיה" },
+  salon: { c: [200, 182], s: 1.9, title: "סלון · טלוויזיה, אינטרנט וטלפון" },
+  kitchen: { c: [86, 146], s: 2.1, title: "מטבח · חשמל וגז" },
+  bath: { c: [200, 78], s: 2.6, title: "אמבטיה · חשבון מים" },
   beds: { c: [218, 120], s: 1.85, title: "חדרי שינה · סלולר לכל נפש" },
   alerts: { c: [195, 135], s: 1.15, title: "דורש טיפול" },
 };
 const CHIPS: { id: District; label: string; icon: string; color: string }[] = [
   { id: "all", label: "כל הבית", icon: "home", color: "#8FA8FF" },
-  { id: "salon", label: "סלון", icon: "sofa", color: "#4FD1C5" },
-  { id: "kitchen", label: "מטבח", icon: "pot", color: "#F5C542" },
-  { id: "bath", label: "אמבטיה", icon: "drop", color: "#5DB7E3" },
-  { id: "beds", label: "חדרי שינה", icon: "bed", color: "#C9A2FF" },
+  { id: "salon", label: "תקשורת", icon: "wifi", color: "#4FD1C5" },
+  { id: "kitchen", label: "חשמל וגז", icon: "bolt", color: "#F5C542" },
+  { id: "bath", label: "מים", icon: "drop", color: "#5DB7E3" },
+  { id: "beds", label: "סלולר", icon: "phone", color: "#C9A2FF" },
   { id: "alerts", label: "דורש טיפול", icon: "alert", color: "#FF6A2C" },
 ];
 const DESIGN_W = 390;

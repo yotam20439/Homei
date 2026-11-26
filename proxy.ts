@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { DEVICE_COOKIE, readDevice } from "@/lib/device";
 
-const PUBLIC_PATHS = ["/preview", "/login", "/signup", "/reset", "/api/cron", "/privacy"];
+const PUBLIC_PATHS = ["/login", "/signup", "/reset", "/api/cron", "/privacy"];
 const VERIFY_PATH = "/verify";
 
 export async function proxy(request: NextRequest) {

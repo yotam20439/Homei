@@ -44,10 +44,11 @@ export async function GET(req: NextRequest) {
     created += inserted.length;
 
     if (!process.env.RESEND_API_KEY) continue;
-    const { data: members } = await admin.from("household_users").select("profiles(email)").eq("household_id", h.id);
+    const { data: hu } = await admin.from("household_users").select("user_id").eq("household_id", h.id);
+    const { data: members } = await admin.from("profiles").select("email").in("id", (hu ?? []).map((x) => x.user_id));
     const list = inserted.map((a) => `<li style="margin-bottom:8px"><b>${escapeHtml(a.title)}</b><br><span style="color:#6b717b">${escapeHtml(a.body ?? "")}</span></li>`).join("");
     for (const mm of members ?? []) {
-      const email = (mm.profiles as unknown as { email: string } | null)?.email;
+      const email = mm.email as string | undefined;
       if (!email) continue;
       await sendEmail({
         to: email,

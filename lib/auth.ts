@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -19,7 +20,7 @@ export function isAllowedEmail(email: string | undefined | null): boolean {
 }
 
 /** Signed-in user (session valid), whether or not this device passed the email code. */
-export async function getUser(): Promise<SessionUser | null> {
+export const getUser = cache(async function getUser(): Promise<SessionUser | null> {
   const supabase = await createClient();
   const { data } = await supabase.auth.getUser();
   const u = data.user;
@@ -30,10 +31,10 @@ export async function getUser(): Promise<SessionUser | null> {
     name: (u.user_metadata?.full_name as string) ?? null,
     avatar: null,
   };
-}
+});
 
 /** For every protected page and action: session + verified, non-revoked device. */
-export async function requireVerifiedUser(): Promise<SessionUser> {
+export const requireVerifiedUser = cache(async function requireVerifiedUser(): Promise<SessionUser> {
   const user = await getUser();
   if (!user) redirect("/login");
   if (!isAllowedEmail(user.email)) redirect("/login");
@@ -52,11 +53,11 @@ export async function requireVerifiedUser(): Promise<SessionUser> {
     await admin.from("trusted_devices").update({ last_seen_at: new Date().toISOString() }).eq("id", deviceId);
   }
   return user;
-}
+});
 
 export type Membership = { householdId: string; role: "owner" | "member"; name: string; address: string | null; floor: string | null };
 
-export async function getMembership(): Promise<Membership | null> {
+export const getMembership = cache(async function getMembership(): Promise<Membership | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("household_users")
@@ -67,7 +68,7 @@ export async function getMembership(): Promise<Membership | null> {
   if (!data) return null;
   const h = data.households as unknown as { name: string; address: string | null; floor: string | null };
   return { householdId: data.household_id, role: data.role as "owner" | "member", name: h.name, address: h.address, floor: h.floor };
-}
+});
 
 /** Verified user who belongs to a household; otherwise sends them to onboarding. */
 export async function requireHousehold(): Promise<{ user: SessionUser; m: Membership }> {
