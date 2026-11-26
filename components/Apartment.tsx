@@ -1,7 +1,20 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Icon from "./Icon";
+import type { Room3D, View3D } from "./Apartment3D";
+
+const Apartment3D = dynamic(() => import("./Apartment3D"), { ssr: false });
+
+function hasWebGL(): boolean {
+  try {
+    const c = document.createElement("canvas");
+    return !!(c.getContext("webgl2") || c.getContext("webgl"));
+  } catch {
+    return false;
+  }
+}
 import { APARTMENT_SVG } from "./apartmentSvg";
 
 export type Row = {
@@ -108,6 +121,18 @@ export default function Apartment({
     return [c[0] - 195 / s, c[1] - ty / s, DESIGN_W / s, H / s];
   }, [d, fit.h, sheetRows.length]);
 
+  const [use3D, setUse3D] = useState(false);
+  const [ready3D, setReady3D] = useState(false);
+  useEffect(() => setUse3D(hasWebGL()), []);
+  const view3D: View3D = d === "salon" || d === "kitchen" || d === "bath" || d === "beds" ? d : "all";
+  const focusY = useMemo(() => {
+    if (view3D === "all") return HEADER_BOTTOM + (fit.h - 170 - HEADER_BOTTOM) / 2;
+    const sheetH = Math.min(64 + sheetRows.length * 50, 500);
+    return HEADER_BOTTOM + (fit.h - 94 - sheetH - HEADER_BOTTOM) / 2;
+  }, [view3D, fit.h, sheetRows.length]);
+  const warnRooms = useMemo(() => (["salon", "kitchen", "bath"] as Room3D[]).filter((r) => rows.some((x) => x.room === r && x.warn)), [rows]);
+  const pick3D = useCallback((r: Room3D) => setD(r), []);
+
   const [box, setBox] = useState<Box>(target);
   const boxRef = useRef<Box>(target);
   useEffect(() => {
@@ -129,7 +154,12 @@ export default function Apartment({
 
   return (
     <div className="apt" dir="rtl" style={{ zoom: fit.zoom, height: fit.h }}>
-      <svg className="apt-svg" viewBox={box.join(" ")} preserveAspectRatio="xMidYMin slice" aria-hidden={!isAll}>
+      {use3D && (
+        <div className="apt-3d-wrap" style={{ opacity: ready3D ? 1 : 0 }}>
+          <Apartment3D view={view3D} people={people} warnRooms={warnRooms} focusY={focusY} onPick={pick3D} onReady={() => setReady3D(true)} />
+        </div>
+      )}
+      <svg className="apt-svg" style={{ opacity: ready3D ? 0 : 1, pointerEvents: ready3D ? "none" : undefined }} viewBox={box.join(" ")} preserveAspectRatio="xMidYMin slice" aria-hidden={ready3D || !isAll}>
         <g dangerouslySetInnerHTML={{ __html: SVG_INNER }} />
         {people.slice(0, SLOTS.length).map((p, i) => {
           const [x, y] = SLOTS[i];

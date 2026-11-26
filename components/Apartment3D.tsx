@@ -1,0 +1,577 @@
+"use client";
+import { useEffect, useRef } from "react";
+import * as THREE from "three";
+
+export type Room3D = "salon" | "kitchen" | "bath" | "beds";
+export type View3D = "all" | Room3D;
+export type Person3D = { id: string; name: string; color: string; talking: boolean; warn: boolean };
+
+type Props = {
+  view: View3D;
+  people: Person3D[];
+  warnRooms: Room3D[];
+  /** Screen-space vertical centre (CSS px from the top of the canvas) where the focus should sit. */
+  focusY: number;
+  onPick: (room: Room3D) => void;
+  onReady?: () => void;
+};
+
+// ---------- Layout (world units ≈ metres; x → screen right, z → screen left) ----------
+const ROOMS: { id: string; pick: Room3D; x: [number, number]; z: [number, number]; floor: string; label: string }[] = [
+  { id: "bath", pick: "bath", x: [0, 4], z: [0, 3], floor: "#CFE5EC", label: "אמבטיה" },
+  { id: "kids", pick: "beds", x: [0, 4], z: [3, 6], floor: "#F7DCCF", label: "חדר ילדים" },
+  { id: "kitchen", pick: "kitchen", x: [0, 4], z: [6, 10], floor: "#EFE8D6", label: "מטבח" },
+  { id: "parents", pick: "beds", x: [4, 10], z: [0, 4], floor: "#E6D8BF", label: "חדר הורים" },
+  { id: "salon", pick: "salon", x: [4, 10], z: [4, 10], floor: "#EADFC8", label: "סלון" },
+];
+const SPOTS: Record<string, [number, number][]> = {
+  parents: [[7.6, 2.9], [8.3, 2.3], [6.1, 2.9], [7.0, 3.3]],
+  salon: [[7.2, 6.0], [8.6, 7.4], [5.4, 6.4], [7.6, 8.2], [5.2, 8.4]],
+  kids: [[2.0, 4.6], [1.6, 5.4], [2.8, 4.3], [2.4, 5.3]],
+  kitchen: [[1.6, 7.0], [2.4, 9.4], [1.3, 9.2], [3.2, 8.0]],
+  bath: [[2.0, 1.7], [2.7, 2.0]],
+};
+const PERSON_ROOM = ["parents", "salon", "kids", "kids", "kitchen", "salon", "parents", "salon"];
+const CAMS: Record<View3D, { t: [number, number, number]; w: number }> = {
+  all: { t: [5, 0.7, 5], w: 13.6 },
+  salon: { t: [7, 0.6, 7], w: 7.2 },
+  kitchen: { t: [1.9, 0.7, 8.0], w: 5.8 },
+  bath: { t: [1.9, 0.5, 1.4], w: 5.2 },
+  beds: { t: [4.6, 0.6, 3.0], w: 9.6 },
+};
+const WARN_AT: Record<Room3D, [number, number, number]> = {
+  salon: [4.65, 1.55, 4.55],
+  bath: [1.1, 1.35, 0.75],
+  kitchen: [0.6, 1.75, 7.5],
+  beds: [0, -10, 0],
+};
+
+const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+function textSprite(text: string, opts: { size?: number; color?: string; bg?: string; pad?: number; radius?: number; bold?: boolean } = {}) {
+  const { size = 42, color = "#5C5446", bg, pad = 14, radius = 22, bold = true } = opts;
+  const c = document.createElement("canvas");
+  const ctx = c.getContext("2d")!;
+  const font = `${bold ? 700 : 500} ${size}px Rubik, system-ui, sans-serif`;
+  ctx.font = font;
+  const w = Math.ceil(ctx.measureText(text).width) + pad * 2;
+  const h = size + pad * 2;
+  c.width = w;
+  c.height = h;
+  ctx.font = font;
+  if (bg) {
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, w, h, radius);
+    ctx.fill();
+  }
+  ctx.fillStyle = color;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.direction = "rtl";
+  ctx.fillText(text, w / 2, h / 2 + 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  s.scale.set(w / 160, h / 160, 1);
+  return s;
+}
+
+function warnSprite() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = "#FF6A2C";
+  ctx.beginPath();
+  ctx.arc(64, 64, 52, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = 9;
+  ctx.strokeStyle = "#FFFFFF";
+  ctx.stroke();
+  ctx.fillStyle = "#FFFFFF";
+  ctx.font = "900 78px Rubik, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("!", 64, 70);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  s.renderOrder = 10;
+  s.scale.set(0.55, 0.55, 1);
+  return s;
+}
+
+export default function Apartment3D({ view, people, warnRooms, focusY, onPick, onReady }: Props) {
+  const host = useRef<HTMLDivElement>(null);
+  const api = useRef<{
+    setView: (v: View3D, focusY: number) => void;
+    setPeople: (p: Person3D[]) => void;
+    setWarn: (w: Room3D[]) => void;
+    pickable: boolean;
+  } | null>(null);
+  const onPickRef = useRef(onPick);
+  onPickRef.current = onPick;
+
+  useEffect(() => {
+    const el = host.current!;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    el.appendChild(renderer.domElement);
+    renderer.domElement.style.display = "block";
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
+    const DIR = new THREE.Vector3(1, 0.92, 1).normalize();
+
+    // ---------- Lights ----------
+    scene.add(new THREE.HemisphereLight(0xfff4e6, 0x3a3f4a, 1.15));
+    const sun = new THREE.DirectionalLight(0xfff0dd, 2.2);
+    sun.position.set(14, 18, 8);
+    sun.target.position.set(5, 0, 5);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    Object.assign(sun.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 50 });
+    sun.shadow.bias = -0.0005;
+    sun.shadow.radius = 4;
+    scene.add(sun, sun.target);
+
+    // ---------- Helpers ----------
+    const mats = new Map<string, THREE.MeshStandardMaterial>();
+    const mat = (color: string, opts: Partial<THREE.MeshStandardMaterialParameters> = {}) => {
+      const key = color + JSON.stringify(opts);
+      if (!mats.has(key)) mats.set(key, new THREE.MeshStandardMaterial({ color, roughness: 0.78, metalness: 0.02, ...opts }));
+      return mats.get(key)!;
+    };
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+    const box = (x: number, z: number, w: number, d: number, h: number, color: string, y = 0, opts?: Partial<THREE.MeshStandardMaterialParameters>) => {
+      const m = new THREE.Mesh(boxGeo, mat(color, opts));
+      m.scale.set(w, h, d);
+      m.position.set(x + w / 2, y + h / 2, z + d / 2);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      scene.add(m);
+      return m;
+    };
+    const cyl = (x: number, z: number, r: number, h: number, color: string, y = 0, seg = 20, opts?: Partial<THREE.MeshStandardMaterialParameters>) => {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, seg), mat(color, opts));
+      m.position.set(x, y + h / 2, z);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      scene.add(m);
+      return m;
+    };
+
+    // ---------- Shell ----------
+    box(-0.2, -0.2, 10.4, 10.4, 0.35, "#9EA3AB", -0.35);
+    const floors: THREE.Mesh[] = [];
+    for (const r of ROOMS) {
+      const f = new THREE.Mesh(new THREE.PlaneGeometry(r.x[1] - r.x[0], r.z[1] - r.z[0]), mat(r.floor));
+      f.rotation.x = -Math.PI / 2;
+      f.position.set((r.x[0] + r.x[1]) / 2, 0.002, (r.z[0] + r.z[1]) / 2);
+      f.receiveShadow = true;
+      f.userData.pick = r.pick;
+      scene.add(f);
+      floors.push(f);
+      const label = textSprite(r.label, { size: 40, color: "#7A6F5C" });
+      label.position.set(r.x[1] - 0.55, 0.06, r.z[1] - 0.35);
+      label.center.set(0.5, 0);
+      (label.material as THREE.SpriteMaterial).opacity = 0.85;
+      label.scale.multiplyScalar(0.8);
+      scene.add(label);
+    }
+    // bathroom tiles + kitchen checker
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) if ((i + j) % 2) box(i + 0.02, j + 0.02, 0.96, 0.96, 0.004, "#BCDBE4", 0.002);
+    for (let i = 0; i < 4; i++) for (let j = 6; j < 10; j++) if ((i + j) % 2) box(i, j, 1, 1, 0.004, "#E2D8C0", 0.002);
+    // back walls
+    const WALL = 2.6;
+    box(-0.18, -0.18, 10.18, 0.18, WALL, "#EFE9DE");
+    box(-0.18, 0, 0.18, 10, WALL, "#E2DACB");
+    const glass = mat("#A9D8F0", { emissive: "#BFE6FA", emissiveIntensity: 0.55, roughness: 0.2 });
+    const win = (x: number, z: number, w: number, d: number) => {
+      const frame = box(x - 0.06, z - 0.06, w + 0.12, d + 0.12, 1.3, "#FFFFFF", 0.9);
+      frame.castShadow = false;
+      const g = new THREE.Mesh(boxGeo, glass);
+      g.scale.set(w || 0.02, 1.18, d || 0.02);
+      g.position.set(x + (w || 0.02) / 2 + (w ? 0 : 0.03), 1.55, z + (d || 0.02) / 2 + (d ? 0.03 : 0));
+      scene.add(g);
+    };
+    win(5.6, 0.0, 1.8, 0);
+    win(1.2, 0.0, 1.4, 0);
+    win(0.0, 3.8, 0, 1.4);
+    win(0.0, 7.2, 0, 1.6);
+    // low partitions (cutaway) with door gaps
+    const PW = "#E7DFD1", PH = 0.95;
+    box(0, 2.92, 1.4, 0.16, PH, PW); box(2.4, 2.92, 1.6, 0.16, PH, PW);
+    box(0, 5.92, 1.6, 0.16, PH, PW); box(2.8, 5.92, 1.2, 0.16, PH, PW);
+    box(3.92, 0, 0.16, 1.6, PH, PW); box(3.92, 2.6, 0.16, 1.8, PH, PW); box(3.92, 5.4, 0.16, 1.4, PH, PW); box(3.92, 8.0, 0.16, 2.0, PH, PW);
+    box(4, 3.92, 2.0, 0.16, PH, PW); box(7.4, 3.92, 2.6, 0.16, PH, PW);
+
+    // ---------- Bathroom: tub, sink, toilet, running water ----------
+    box(0.2, 0.2, 1.9, 1.0, 0.55, "#FFFFFF", 0, { roughness: 0.35 });
+    const water = box(0.32, 0.32, 1.66, 0.76, 0.02, "#6FC0E6", 0.5, { roughness: 0.1, emissive: "#3A9BD0", emissiveIntensity: 0.25 });
+    box(0.25, 0.55, 0.12, 0.12, 0.35, "#C9CED6", 0.55, { metalness: 0.6, roughness: 0.3 });
+    box(0.25, 0.57, 0.3, 0.08, 0.06, "#C9CED6", 0.86, { metalness: 0.6, roughness: 0.3 });
+    box(3.0, 0.2, 0.8, 0.6, 0.85, "#FFFFFF", 0, { roughness: 0.4 });
+    box(3.1, 0.26, 0.6, 0.45, 0.03, "#CFE5EC", 0.85);
+    box(3.25, 0.2, 0.3, 0.05, 0.7, "#BFE6FA", 1.1, { emissive: "#BFE6FA", emissiveIntensity: 0.4, roughness: 0.1 });
+    box(2.2, 0.25, 0.5, 0.6, 0.45, "#FFFFFF", 0, { roughness: 0.4 });
+    box(2.2, 0.2, 0.5, 0.2, 0.75, "#FFFFFF", 0, { roughness: 0.4 });
+    const dropGeo = new THREE.SphereGeometry(0.035, 8, 8);
+    const drops = Array.from({ length: 6 }, (_, i) => {
+      const m = new THREE.Mesh(dropGeo, mat("#7CC9F0", { emissive: "#7CC9F0", emissiveIntensity: 0.6 }));
+      m.position.set(0.52, 0.85, 0.61);
+      m.userData.t = i / 6;
+      scene.add(m);
+      return m;
+    });
+
+    // ---------- Kids room ----------
+    box(0.2, 3.25, 1.05, 2.0, 0.32, "#F4B9B2");
+    box(0.25, 3.3, 0.95, 1.9, 0.16, "#FFFFFF", 0.32);
+    box(0.3, 3.35, 0.85, 0.45, 0.1, "#FFE7A8", 0.48);
+    box(0.25, 4.0, 0.95, 1.2, 0.05, "#9FB4E8", 0.48);
+    box(2.95, 3.2, 0.85, 0.6, 0.75, "#B7865A");
+    box(3.05, 3.3, 0.3, 0.22, 0.2, "#4F9FA6", 0.75);
+    cyl(2.2, 4.85, 0.55, 0.02, "#9FD3B6", 0, 32);
+    box(2.0, 5.2, 0.5, 0.5, 0.35, "#7CC765");
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 16), mat("#FF6A2C"));
+    ball.position.set(2.7, 0.14, 5.1);
+    ball.castShadow = true;
+    scene.add(ball);
+
+    // ---------- Kitchen: counter, stove with gas flame, fridge, table, pendant ----------
+    box(0.18, 6.2, 0.85, 3.2, 0.88, "#FFFFFF");
+    box(0.15, 6.18, 0.9, 3.24, 0.05, "#B9B2A3", 0.88);
+    box(0.28, 7.15, 0.62, 0.62, 0.02, "#2B2F36", 0.93);
+    const flames: THREE.Mesh[] = [];
+    for (const [fx, fz] of [[0.44, 7.3], [0.74, 7.3], [0.44, 7.6], [0.74, 7.6]] as [number, number][]) {
+      const f = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.12, 10), mat("#3FA7FF", { emissive: "#3FA7FF", emissiveIntensity: 2.2, transparent: true, opacity: 0.9 }));
+      f.position.set(fx, 1.0, fz);
+      scene.add(f);
+      flames.push(f);
+    }
+    cyl(0.6, 7.6, 0.16, 0.18, "#D0533A", 1.03, 18, { roughness: 0.4 });
+    box(2.85, 6.2, 0.95, 0.8, 1.95, "#E9ECEF", 0, { roughness: 0.35 });
+    box(2.85, 6.98, 0.02, 0.02, 0.5, "#9AA0AB", 1.1);
+    box(1.75, 8.25, 1.35, 1.0, 0.06, "#B7865A", 0.72);
+    cyl(2.42, 8.75, 0.07, 0.72, "#8C6440");
+    for (const [cx, cz] of [[1.55, 8.55], [3.25, 8.55], [2.25, 9.4]] as [number, number][]) box(cx - 0.2, cz - 0.2, 0.4, 0.4, 0.45, "#D9A877");
+    const pendant = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 16), mat("#FFE7A0", { emissive: "#FFD27A", emissiveIntensity: 2 }));
+    pendant.position.set(2.42, 1.85, 8.75);
+    scene.add(pendant);
+    box(2.41, 8.74, 0.02, 0.02, 0.8, "#3B3F46", 1.95);
+
+    // ---------- Parents room ----------
+    box(4.9, 0.3, 0.15, 2.2, 1.05, "#8C6440");
+    box(5.05, 0.3, 2.2, 2.2, 0.3, "#FFFFFF");
+    box(5.1, 0.35, 2.1, 2.1, 0.14, "#F4F1EA", 0.3);
+    box(5.15, 0.4, 0.5, 0.9, 0.12, "#FFFFFF", 0.44);
+    box(5.15, 1.4, 0.5, 0.9, 0.12, "#FFFFFF", 0.44);
+    box(5.8, 0.35, 1.45, 2.1, 0.06, "#9FB4E8", 0.44);
+    box(8.75, 0.15, 1.05, 1.75, 2.05, "#C9A57A");
+    box(9.3, 0.15, 0.01, 1.75, 2.0, "#A98558", 0.02);
+    box(7.4, 0.3, 0.5, 0.5, 0.5, "#B7865A");
+    const lampP = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.17, 0.2, 16, 1, true), mat("#FFF1CC", { emissive: "#FFE2A0", emissiveIntensity: 1.6, side: THREE.DoubleSide }));
+    lampP.position.set(7.65, 0.78, 0.55);
+    scene.add(lampP);
+
+    // ---------- Living room: TV wall, sofa, router, landline, plant, floor lamp ----------
+    box(5.6, 6.4, 3.0, 3.0, 0.01, "#D98B6B", 0.003);
+    box(5.85, 6.65, 2.5, 2.5, 0.01, "#E9A889", 0.006);
+    box(6.0, 4.15, 2.4, 0.5, 0.5, "#3B3F46");
+    box(6.15, 4.25, 2.1, 0.1, 1.15, "#1E2125", 0.5);
+    const screenMat = new THREE.MeshStandardMaterial({ color: "#5DB7E3", emissive: "#5DB7E3", emissiveIntensity: 1.4, roughness: 0.2 });
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.95, 1.0), screenMat);
+    screen.position.set(7.2, 1.075, 4.356);
+    scene.add(screen);
+    const tvLight = new THREE.PointLight(0x5db7e3, 1.6, 4, 1.6);
+    tvLight.position.set(7.2, 1.1, 4.9);
+    scene.add(tvLight);
+    box(5.9, 8.75, 2.7, 0.95, 0.45, "#4F9FA6");
+    box(5.9, 9.4, 2.7, 0.35, 0.95, "#3F8A90");
+    box(5.75, 8.75, 0.2, 1.0, 0.65, "#3F8A90");
+    box(8.6, 8.75, 0.2, 1.0, 0.65, "#3F8A90");
+    for (let i = 0; i < 3; i++) box(6.05 + i * 0.85, 9.05, 0.7, 0.3, 0.35, "#64B5BC", 0.45);
+    box(6.6, 6.8, 1.25, 0.85, 0.08, "#B7865A", 0.35);
+    cyl(7.22, 7.22, 0.06, 0.35, "#8C6440");
+    cyl(7.0, 7.1, 0.07, 0.12, "#FFFFFF", 0.43);
+    box(4.3, 4.3, 0.75, 0.5, 0.6, "#FFFFFF");
+    box(4.45, 4.38, 0.45, 0.32, 0.1, "#2B2F36", 0.6);
+    const leds = [0, 1, 2].map((i) => {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 8), new THREE.MeshStandardMaterial({ color: "#2FBF5B", emissive: "#2FBF5B", emissiveIntensity: 3 }));
+      m.position.set(4.55 + i * 0.1, 0.66, 4.71);
+      scene.add(m);
+      return m;
+    });
+    box(4.62, 4.4, 0.02, 0.02, 0.3, "#2B2F36", 0.7);
+    box(9.0, 8.9, 0.6, 0.55, 0.55, "#B7865A");
+    const phone = box(9.1, 9.0, 0.38, 0.3, 0.12, "#E0664A", 0.55, { roughness: 0.4 });
+    cyl(9.55, 4.6, 0.2, 0.35, "#C9A57A");
+    const plant = new THREE.Mesh(new THREE.IcosahedronGeometry(0.38, 1), mat("#5FA84E", { flatShading: true }));
+    plant.position.set(9.55, 0.72, 4.6);
+    plant.castShadow = true;
+    scene.add(plant);
+    cyl(4.55, 9.45, 0.03, 1.5, "#3B3F46");
+    const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.24, 0.28, 18, 1, true), mat("#FFF1CC", { emissive: "#FFE2A0", emissiveIntensity: 1.5, side: THREE.DoubleSide }));
+    shade.position.set(4.55, 1.55, 9.45);
+    scene.add(shade);
+
+    // Warm room lights ("electricity")
+    const roomLights = [
+      [2.4, 1.7, 8.7], [7.65, 1.1, 0.6], [4.6, 1.5, 9.3], [2, 2, 1.5], [2, 2, 4.6],
+    ].map(([x, y, z]) => {
+      const l = new THREE.PointLight(0xffd59a, 1.4, 4.5, 1.8);
+      l.position.set(x, y, z);
+      scene.add(l);
+      return l;
+    });
+
+    // ---------- People ----------
+    type P = { group: THREE.Group; body: THREE.Group; ring: THREE.Mesh; bubble: THREE.Sprite; phone: THREE.Mesh; spots: [number, number][]; target: THREE.Vector3; wait: number; talking: boolean; warn: boolean; phase: number };
+    const persons = new Map<string, P>();
+    const skin = mat("#F2C9A0");
+    const ringMat = new THREE.MeshBasicMaterial({ color: "#FF6A2C", transparent: true, opacity: 0.9, depthWrite: false });
+    const makePerson = (p: Person3D, i: number): P => {
+      const roomId = PERSON_ROOM[i % PERSON_ROOM.length];
+      const spots = SPOTS[roomId];
+      const group = new THREE.Group();
+      const body = new THREE.Group();
+      const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.42, 6, 14), mat(p.color));
+      torso.position.y = 0.42;
+      torso.castShadow = true;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 18, 18), skin);
+      head.position.y = 0.88;
+      head.castShadow = true;
+      const hair = new THREE.Mesh(new THREE.SphereGeometry(0.155, 18, 18, 0, Math.PI * 2, 0, Math.PI / 2), mat(i % 3 === 0 ? "#3B2A20" : i % 3 === 1 ? "#1E2433" : "#8C5A35"));
+      hair.position.y = 0.9;
+      const ph = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.13, 0.08), mat("#1E2433"));
+      ph.position.set(0.12, 0.88, 0.1);
+      body.add(torso, head, hair, ph);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.24, 0.32, 32), ringMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.02;
+      const bubble = textSprite("•••", { size: 40, color: "#1E2433", bg: "#FFFFFF", pad: 12, radius: 26 });
+      bubble.position.set(0.25, 1.32, 0);
+      bubble.scale.multiplyScalar(0.7);
+      group.add(body, ring, bubble);
+      const [sx, sz] = spots[i % spots.length];
+      group.position.set(sx, 0, sz);
+      scene.add(group);
+      return { group, body, ring, bubble, phone: ph, spots, target: new THREE.Vector3(sx, 0, sz), wait: 1 + Math.random() * 2, talking: p.talking, warn: p.warn, phase: Math.random() * 10 };
+    };
+    const setPeople = (list: Person3D[]) => {
+      const keep = new Set(list.map((p) => p.id));
+      for (const [id, p] of persons) if (!keep.has(id)) { scene.remove(p.group); persons.delete(id); }
+      list.slice(0, 8).forEach((p, i) => {
+        let pp = persons.get(p.id);
+        if (!pp) { pp = makePerson(p, i); persons.set(p.id, pp); }
+        pp.talking = p.talking;
+        pp.warn = p.warn;
+        pp.phone.visible = p.talking;
+        pp.bubble.visible = p.talking;
+        pp.ring.visible = p.warn;
+        (pp.body.children[0] as THREE.Mesh).material = mat(p.color);
+      });
+    };
+
+    // ---------- Warning markers ----------
+    const warns = new Map<Room3D, THREE.Sprite>();
+    (Object.keys(WARN_AT) as Room3D[]).forEach((r) => {
+      if (r === "beds") return;
+      const s = warnSprite();
+      s.position.set(...WARN_AT[r]);
+      s.visible = false;
+      scene.add(s);
+      warns.set(r, s);
+    });
+    const setWarn = (list: Room3D[]) => warns.forEach((s, r) => (s.visible = list.includes(r)));
+
+    // ---------- Camera ----------
+    let size = { w: 1, h: 1 };
+    const cam = { t: new THREE.Vector3(...CAMS.all.t), w: CAMS.all.w, fy: 0.5 };
+    const from = { t: cam.t.clone(), w: cam.w, fy: cam.fy };
+    const to = { t: cam.t.clone(), w: cam.w, fy: cam.fy };
+    let tween = 1;
+    const applyCamera = () => {
+      const aspect = size.w / size.h;
+      const halfW = cam.w / 2, halfH = halfW / aspect;
+      camera.left = -halfW; camera.right = halfW; camera.top = halfH; camera.bottom = -halfH;
+      camera.position.copy(cam.t).addScaledVector(DIR, 40);
+      camera.lookAt(cam.t);
+      // shift so the focus point lands at fy (fraction of height from the top)
+      const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+      const shift = (cam.fy - 0.5) * 2 * halfH;
+      camera.position.addScaledVector(up, shift);
+      camera.updateProjectionMatrix();
+    };
+    const setView = (v: View3D, focusPx: number) => {
+      from.t.copy(cam.t); from.w = cam.w; from.fy = cam.fy;
+      to.t.set(...CAMS[v].t); to.w = CAMS[v].w; to.fy = Math.min(0.8, Math.max(0.2, focusPx / size.h));
+      tween = reduce ? 1 : 0;
+      if (reduce) { cam.t.copy(to.t); cam.w = to.w; cam.fy = to.fy; }
+    };
+
+    const resize = () => {
+      const r = el.getBoundingClientRect();
+      const cssW = el.clientWidth || r.width, cssH = el.clientHeight || r.height;
+      size = { w: Math.max(1, cssW), h: Math.max(1, cssH) };
+      renderer.setSize(size.w, size.h, false);
+      renderer.domElement.style.width = "100%";
+      renderer.domElement.style.height = "100%";
+      applyCamera();
+    };
+    const ro = new ResizeObserver(resize);
+    ro.observe(el);
+    resize();
+
+    // ---------- Picking ----------
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    const hit = (e: PointerEvent) => {
+      const r = renderer.domElement.getBoundingClientRect();
+      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(ndc, camera);
+      return ray.intersectObjects(floors, false)[0]?.object.userData.pick as Room3D | undefined;
+    };
+    let down: { x: number; y: number } | null = null;
+    const onDown = (e: PointerEvent) => (down = { x: e.clientX, y: e.clientY });
+    const onUp = (e: PointerEvent) => {
+      if (!down || !api.current?.pickable) return;
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) return;
+      const room = hit(e);
+      if (room) onPickRef.current(room);
+    };
+    const onMove = (e: PointerEvent) => {
+      renderer.domElement.style.cursor = api.current?.pickable && hit(e) ? "pointer" : "default";
+    };
+    renderer.domElement.addEventListener("pointerdown", onDown);
+    renderer.domElement.addEventListener("pointerup", onUp);
+    renderer.domElement.addEventListener("pointermove", onMove);
+
+    // ---------- Loop ----------
+    const timer = new THREE.Timer();
+    let raf = 0;
+    let tvNext = 0;
+    const TV_COLORS = ["#5DB7E3", "#8FD0F0", "#F5C542", "#7CC765", "#E58AD0", "#4A9FD0"];
+    let first = true;
+    const tick = (now?: number) => {
+      timer.update(now);
+      const dt = Math.min(timer.getDelta(), 0.05);
+      const t = timer.getElapsed();
+
+      if (tween < 1) {
+        tween = Math.min(1, tween + dt / 0.65);
+        const k = ease(tween);
+        cam.t.lerpVectors(from.t, to.t, k);
+        cam.w = from.w + (to.w - from.w) * k;
+        cam.fy = from.fy + (to.fy - from.fy) * k;
+      }
+      applyCamera();
+
+      if (!reduce) {
+        for (const p of persons.values()) {
+          const pos = p.group.position;
+          const toT = p.target.clone().sub(pos);
+          const dist = toT.length();
+          if (dist > 0.03) {
+            const speed = 0.55;
+            pos.addScaledVector(toT.normalize(), Math.min(dist, speed * dt));
+            p.group.rotation.y = Math.atan2(toT.x, toT.z);
+            p.body.position.y = Math.abs(Math.sin(t * 9 + p.phase)) * 0.05;
+            p.body.rotation.z = Math.sin(t * 9 + p.phase) * 0.05;
+          } else {
+            p.body.position.y = Math.sin(t * 2 + p.phase) * 0.012;
+            p.body.rotation.z = 0;
+            p.wait -= dt;
+            if (p.wait <= 0) {
+              const [nx, nz] = p.spots[Math.floor(Math.random() * p.spots.length)];
+              p.target.set(nx + (Math.random() - 0.5) * 0.3, 0, nz + (Math.random() - 0.5) * 0.3);
+              p.wait = (p.talking ? 4 : 2) + Math.random() * 3;
+            }
+          }
+          if (p.bubble.visible) p.bubble.material.opacity = 0.75 + Math.sin(t * 4 + p.phase) * 0.25;
+          if (p.ring.visible) {
+            const k = (t * 0.8 + p.phase) % 1;
+            p.ring.scale.setScalar(0.8 + k * 0.9);
+            ringMat.opacity = 0.9 * (1 - k);
+          }
+        }
+        for (const d of drops) {
+          d.userData.t = (d.userData.t + dt * 1.3) % 1;
+          const k = d.userData.t;
+          d.position.y = 0.84 - k * 0.32;
+          d.scale.setScalar(1 - k * 0.4);
+        }
+        (water.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.25 + Math.sin(t * 3) * 0.08;
+        flames.forEach((f, i) => {
+          f.scale.set(1, 0.8 + Math.abs(Math.sin(t * 17 + i * 1.7)) * 0.5, 1);
+        });
+        leds.forEach((l, i) => ((l.material as THREE.MeshStandardMaterial).emissiveIntensity = Math.sin(t * (6 + i * 3)) > 0 ? 3 : 0.2));
+        if (t > tvNext) {
+          const c = TV_COLORS[Math.floor(Math.random() * TV_COLORS.length)];
+          screenMat.color.set(c);
+          screenMat.emissive.set(c);
+          tvLight.color.set(c);
+          tvNext = t + 0.6 + Math.random() * 1.4;
+        }
+        roomLights.forEach((l, i) => (l.intensity = 1.3 + Math.sin(t * 1.3 + i) * 0.12));
+        const ringPhase = t % 9;
+        phone.rotation.z = ringPhase < 1.2 ? Math.sin(t * 60) * 0.08 : 0;
+        plant.rotation.y = Math.sin(t * 0.7) * 0.06;
+        warns.forEach((s) => {
+          const k = 0.55 + Math.sin(t * 5) * 0.05;
+          s.scale.set(k, k, 1);
+          s.position.y = s.userData.y0 ?? (s.userData.y0 = s.position.y);
+          s.position.y = (s.userData.y0 as number) + Math.sin(t * 2.4) * 0.06;
+        });
+        ball.position.x = 2.7 + Math.sin(t * 0.9) * 0.25;
+        ball.rotation.z = -Math.sin(t * 0.9) * 2;
+      }
+
+      renderer.render(scene, camera);
+      if (first) { first = false; onReady?.(); }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+
+    api.current = { setView, setPeople, setWarn, pickable: true };
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      renderer.domElement.removeEventListener("pointerdown", onDown);
+      renderer.domElement.removeEventListener("pointerup", onUp);
+      renderer.domElement.removeEventListener("pointermove", onMove);
+      scene.traverse((o) => {
+        const m = o as THREE.Mesh;
+        m.geometry?.dispose?.();
+        const mm = m.material as THREE.Material | THREE.Material[] | undefined;
+        (Array.isArray(mm) ? mm : mm ? [mm] : []).forEach((x) => {
+          (x as THREE.SpriteMaterial).map?.dispose();
+          x.dispose();
+        });
+      });
+      renderer.dispose();
+      renderer.domElement.remove();
+      api.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!api.current) return;
+    api.current.pickable = view === "all";
+    api.current.setView(view, focusY);
+  }, [view, focusY]);
+  useEffect(() => api.current?.setPeople(people), [people]);
+  useEffect(() => api.current?.setWarn(warnRooms), [warnRooms]);
+
+  return <div ref={host} className="apt-3d" aria-hidden="true" />;
+}

@@ -98,3 +98,6 @@ textarea.input{height:auto;min-height:80px;padding:10px 12px}
 .hotspot-poly:focus-visible{fill:rgba(255,255,255,.12)}
 .apt-svg .sway,.apt-svg .sway2,.apt-svg .ring{transform-box:fill-box;transform-origin:center}
 .apt-svg .ring{animation:pr 1.6s ease-out infinite}
+.apt-3d-wrap{position:absolute;inset:0;transition:opacity 500ms ease}
+.apt-3d{position:absolute;inset:0;touch-action:manipulation}
+.apt-svg{transition:opacity 400ms ease}
